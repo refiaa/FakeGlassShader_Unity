@@ -381,7 +381,7 @@ Material:
     - _BackfaceForceShadow: 0
     - _BackfaceRefractionStrength: 0
     - _BackfaceRefractionThicknessInfluence: 2
-    - _BackfaceVisibility: 0.5
+    - _BackfaceVisibility: 0
     - _BacklightBackfaceMask: 1
     - _BacklightBlur: 0.05
     - _BacklightBorder: 0.35
