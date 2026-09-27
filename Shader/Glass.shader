@@ -155,7 +155,7 @@ Shader "refiaa/glass"
                 float4 tangent : TANGENT;
                 float2 uv : TEXCOORD0;
                 float4 edgeData0 : TEXCOORD3;
-                float2 edgeData1 : TEXCOORD4;
+                float4 edgeData1 : TEXCOORD4;
                 float4 thicknessData : TEXCOORD5;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
@@ -272,7 +272,9 @@ Shader "refiaa/glass"
                 output.tangentWS = UnityObjectToWorldDir(input.tangent.xyz);
                 float tangentSign = input.tangent.w * unity_WorldTransformParams.w;
                 output.bitangentWS = cross(output.normalWS, output.tangentWS) * tangentSign;
-                output.barycentric = input.edgeData0.xyz;
+                // Baked edge data has UV4.w <= 0; a mesh without UV4 gets substitute data (a 2D UV reads w = 1).
+                // Zeroed barycentrics fail the validity check, so unbaked meshes get no edge masks.
+                output.barycentric = input.edgeData0.xyz * step(input.edgeData1.w, 0.5);
                 output.edgeKeep = float3(input.edgeData0.w, input.edgeData1.x, input.edgeData1.y);
                 // Baked inward thickness (object space) scaled to world units along the normal. The baker marks
                 // w = -1; a mesh without UV5 does not read zeros (Unity substitutes other data), so trust the marker only.
@@ -543,7 +545,7 @@ Shader "refiaa/glass"
                 float4 tangent : TANGENT;
                 float2 uv : TEXCOORD0;
                 float4 edgeData0 : TEXCOORD3;
-                float2 edgeData1 : TEXCOORD4;
+                float4 edgeData1 : TEXCOORD4;
                 float4 thicknessData : TEXCOORD5;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
@@ -630,7 +632,9 @@ Shader "refiaa/glass"
                 output.tangentWS = UnityObjectToWorldDir(input.tangent.xyz);
                 float tangentSign = input.tangent.w * unity_WorldTransformParams.w;
                 output.bitangentWS = cross(output.normalWS, output.tangentWS) * tangentSign;
-                output.barycentric = input.edgeData0.xyz;
+                // Baked edge data has UV4.w <= 0; a mesh without UV4 gets substitute data (a 2D UV reads w = 1).
+                // Zeroed barycentrics fail the validity check, so unbaked meshes get no edge masks.
+                output.barycentric = input.edgeData0.xyz * step(input.edgeData1.w, 0.5);
                 output.edgeKeep = float3(input.edgeData0.w, input.edgeData1.x, input.edgeData1.y);
                 // Baked inward thickness (object space) scaled to world units along the normal. The baker marks
                 // w = -1; a mesh without UV5 does not read zeros (Unity substitutes other data), so trust the marker only.

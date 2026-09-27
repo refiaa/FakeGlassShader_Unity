@@ -310,7 +310,7 @@ public static class GlassMeshEdgeBaker
             AppendVertex(
                 tri.I0,
                 new Vector4(1.0f, 0.0f, 0.0f, keep.x),
-                new Vector4(keep.y, keep.z, 0.0f, 0.0f),
+                new Vector4(keep.y, keep.z, 0.0f, -1.0f),
                 sourceVertexCount,
                 srcVertices,
                 srcNormals,
@@ -328,7 +328,7 @@ public static class GlassMeshEdgeBaker
             AppendVertex(
                 tri.I1,
                 new Vector4(0.0f, 1.0f, 0.0f, keep.x),
-                new Vector4(keep.y, keep.z, 0.0f, 0.0f),
+                new Vector4(keep.y, keep.z, 0.0f, -1.0f),
                 sourceVertexCount,
                 srcVertices,
                 srcNormals,
@@ -346,7 +346,7 @@ public static class GlassMeshEdgeBaker
             AppendVertex(
                 tri.I2,
                 new Vector4(0.0f, 0.0f, 1.0f, keep.x),
-                new Vector4(keep.y, keep.z, 0.0f, 0.0f),
+                new Vector4(keep.y, keep.z, 0.0f, -1.0f),
                 sourceVertexCount,
                 srcVertices,
                 srcNormals,
