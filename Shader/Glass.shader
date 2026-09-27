@@ -480,7 +480,7 @@ Shader "refiaa/glass"
                 float fresnel = saturate(GlassLuminance(fresnelColor));
 
                 float3 reflectionDirWS = reflect(-viewDirWS, normalWS);
-                float3 envReflection = SampleEnvironmentReflections(reflectionDirWS, perceptualRoughness);
+                float3 envReflection = SampleEnvironmentReflections(reflectionDirWS, perceptualRoughness, input.worldPos);
 
                 float3 lightDirWS = normalize(UnityWorldSpaceLightDir(input.worldPos));
                 float3 halfDirWS = normalize(lightDirWS + viewDirWS);

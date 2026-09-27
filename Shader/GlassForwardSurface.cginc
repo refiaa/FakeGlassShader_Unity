@@ -55,16 +55,36 @@ inline void SampleSurfaceParameters(float2 baseUV, out float perceptualRoughness
     metallic = GlassApplyMapStrength(0.0, metallicMap, _MetallicMapStrength);
 }
 
-inline float3 SampleEnvironmentReflections(float3 reflectionDirWS, float perceptualRoughness)
+// Parallax-corrects the lookup for box-projected probes (probePosition.w > 0), as Unity's Standard shader does.
+inline float3 GlassBoxProjectedDirection(float3 dirWS, float3 worldPos, float4 probePosition, float4 boxMin, float4 boxMax)
+{
+#if defined(UNITY_SPECCUBE_BOX_PROJECTION)
+    [branch]
+    if (probePosition.w > 0.0)
+    {
+        float3 dir = normalize(dirWS);
+        float3 toBoxMax = (boxMax.xyz - worldPos) / dir;
+        float3 toBoxMin = (boxMin.xyz - worldPos) / dir;
+        float3 toExit = dir > 0.0 ? toBoxMax : toBoxMin;
+        float exitDistance = min(min(toExit.x, toExit.y), toExit.z);
+        return worldPos - probePosition.xyz + dir * exitDistance;
+    }
+#endif
+    return dirWS;
+}
+
+inline float3 SampleEnvironmentReflections(float3 reflectionDirWS, float perceptualRoughness, float3 worldPos)
 {
     float envPerceptualRoughness = perceptualRoughness * (1.7 - 0.7 * perceptualRoughness);
     float iblLod = envPerceptualRoughness * 6.0;
-    half4 encodedIbl = UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, reflectionDirWS, iblLod);
+    float3 dir0 = GlassBoxProjectedDirection(reflectionDirWS, worldPos, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
+    half4 encodedIbl = UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, dir0, iblLod);
     float3 envReflection = DecodeHDR(encodedIbl, unity_SpecCube0_HDR);
 
     if (unity_SpecCube0_BoxMin.w < 0.99999)
     {
-        half4 encodedIbl1 = UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(unity_SpecCube1, unity_SpecCube0, reflectionDirWS, iblLod);
+        float3 dir1 = GlassBoxProjectedDirection(reflectionDirWS, worldPos, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
+        half4 encodedIbl1 = UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(unity_SpecCube1, unity_SpecCube0, dir1, iblLod);
         float3 envReflection1 = DecodeHDR(encodedIbl1, unity_SpecCube1_HDR);
         envReflection = lerp(envReflection1, envReflection, unity_SpecCube0_BoxMin.w);
     }
