@@ -324,4 +324,41 @@ inline float ComputeBaseRefractionScale(float normalizedThickness, float nearFad
     return refractionScale;
 }
 
+// Final output. Per-object GrabPass: the color as is (Blend One Zero).
+// Shared GrabPass: the copy lacks transparents drawn after it (e.g. glass behind this one) while the target holds
+// them. With Blend One SrcAlpha the hardware adds share * (target - grab) back, where share is how much of the scene
+// behind the color carries (scalar: the smallest channel). Where nothing transparent is behind, target == grab and
+// the result equals the per-object one exactly.
+inline float4 GlassComposeOutput(float3 color, float3 sceneShare, float2 screenUV, float4 grabPos)
+{
+#if defined(GLASS_SHARED_GRAB)
+    float share = min(sceneShare.r, min(sceneShare.g, sceneShare.b));
+    return float4(color - share * SampleSceneColor(screenUV, grabPos), share);
+#else
+    return float4(color, 1.0);
+#endif
+}
+
+// Back-face overlay output. Per-object: alpha-blended (Blend SrcAlpha OneMinusSrcAlpha).
+// Shared: the same blend written for Blend One SrcAlpha, plus the share * (target - grab) correction.
+inline float4 GlassComposeOverlayOutput(float3 color, float alpha, float3 sceneShare, float2 screenUV, float4 grabPos)
+{
+#if defined(GLASS_SHARED_GRAB)
+    float share = min(sceneShare.r, min(sceneShare.g, sceneShare.b));
+    return float4(alpha * (color - share * SampleSceneColor(screenUV, grabPos)), 1.0 - alpha * (1.0 - share));
+#else
+    return float4(color, alpha);
+#endif
+}
+
+// An overlay that leaves the target untouched under either blend mode.
+inline float4 GlassEmptyOverlayOutput()
+{
+#if defined(GLASS_SHARED_GRAB)
+    return float4(0.0, 0.0, 0.0, 1.0);
+#else
+    return float4(0.0, 0.0, 0.0, 0.0);
+#endif
+}
+
 #endif

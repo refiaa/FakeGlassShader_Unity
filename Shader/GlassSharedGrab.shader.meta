@@ -1,0 +1,13 @@
+fileFormatVersion: 2
+guid: a7188d83e0814955951887b3f028b44f
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures:
+  - _GlassRainMask: {instanceID: 0}
+  - _GlassRainSheet: {fileID: 2800000, guid: df89a63673a32f4438fba4fb13f0f640, type: 3}
+  - _GlassRainDropletMask: {fileID: 2800000, guid: e33802c3a1e8e1a47a5ef3efa8dfffdd, type: 3}
+  - _GlassRainNoiseTex: {fileID: 2800000, guid: 923a20e8c8f439648bdf7025c790db42, type: 3}
+  nonModifiableTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

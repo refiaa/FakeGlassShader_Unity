@@ -1,4 +1,4 @@
-Shader "refiaa/glass"
+Shader "refiaa/glass (Shared Grab)"
 {
     Properties
     {
@@ -127,14 +127,18 @@ Shader "refiaa/glass"
         ZTest LEqual
         Blend One Zero
 
+        // One screen copy per frame, shared by every object using this shader. Transparents drawn after the copy
+        // (glass behind glass) are restored by the output composition (see GlassComposeOutput).
         GrabPass
         {
+            "_GlassSharedGrabTexture"
         }
 
         Pass
         {
             Name "FORWARD_BASE"
             Tags { "LightMode" = "ForwardBase" }
+            Blend One SrcAlpha
 
             CGPROGRAM
             #pragma target 3.0
@@ -144,6 +148,7 @@ Shader "refiaa/glass"
             #pragma multi_compile_instancing
             #pragma shader_feature_local _DEBUGVIEW_NONE _DEBUGVIEW_THICKNESS _DEBUGVIEW_TRANSMITTANCE _DEBUGVIEW_FRESNEL
 
+            #define GLASS_SHARED_GRAB 1
             #include "GlassForwardPass.cginc"
             ENDCG
         }
@@ -155,7 +160,7 @@ Shader "refiaa/glass"
             Cull Front
             ZWrite Off
             ZTest LEqual
-            Blend SrcAlpha OneMinusSrcAlpha
+            Blend One SrcAlpha
 
             CGPROGRAM
             #pragma target 3.0
@@ -163,6 +168,7 @@ Shader "refiaa/glass"
             #pragma fragment fragBack
             #pragma multi_compile_instancing
 
+            #define GLASS_SHARED_GRAB 1
             #include "GlassBackfacePass.cginc"
             ENDCG
         }
