@@ -507,9 +507,9 @@ Shader "refiaa/glass"
                 float nDotH = saturate(dot(normalWS, halfDirWS));
                 float vDotH = saturate(dot(viewDirWS, halfDirWS));
                 float D = GlassDistributionGGX(nDotH, roughnessLinear);
-                float G = GlassGeometrySmith(nDotL, nDotV, roughnessLinear);
+                float V = GlassVisibilitySmith(nDotL, nDotV, roughnessLinear);
                 float3 Fh = GlassSchlickFresnelColor(vDotH, specularColor);
-                float3 specularBrdf = (D * G * Fh) / max(4.0 * nDotL * nDotV, 1e-4);
+                float3 specularBrdf = D * V * Fh;
                 float3 directSpecular = specularBrdf * nDotL * _LightColor0.rgb * _SpecularStrength;
 
                 float surfaceReduction = 1.0 / (roughnessLinear * roughnessLinear + 1.0);
@@ -523,8 +523,8 @@ Shader "refiaa/glass"
                 float3 interreflection = 1.0 / max(1.0.xxx - frontReflectance * frontReflectance * transmittanceSq, 1e-4);
                 float3 backReflectance = (1.0 - frontReflectance) * (1.0 - frontReflectance) * frontReflectance * transmittanceSq * interreflection;
                 float3 reflectionColor = envReflection * _EnvReflectionStrength * (frontReflectance + backReflectance) + directSpecular;
-                float3 reflectionAbsorption = GlassComputeTransmittance(sigma, curvedAbsorptionThickness * 2.0);
-                reflectionColor *= lerp(1.0.xxx, reflectionAbsorption, saturate(_ReflectionAbsorption));
+                // exp(-sigma * 2L) = T^2, already at hand.
+                reflectionColor *= lerp(1.0.xxx, transmittanceSq, saturate(_ReflectionAbsorption));
 
                 // Same slab sum with the grazing-relaxed reflectance, so the weight stays <= 1.
                 float3 transmissionLoss = frontReflectance * (1.0 - saturate(_TransmissionAtGrazing));

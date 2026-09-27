@@ -105,12 +105,13 @@ inline float GlassRefractedCos(float cosIncident, float ior)
 }
 
 // Refracts a ray through an interface; the normal may face either side.
+// Callers pass unit vectors, for which refract() already returns a unit vector.
 // Returns the unrefracted direction on total internal reflection.
 inline float3 GlassRefractDirection(float3 incident, float3 normal, float eta)
 {
     float3 n = dot(incident, normal) > 0.0 ? -normal : normal;
     float3 refracted = refract(incident, n, eta);
-    return dot(refracted, refracted) > 1e-6 ? normalize(refracted) : incident;
+    return dot(refracted, refracted) > 1e-6 ? refracted : incident;
 }
 
 // Wavelength-dependent index for R/G/B at the Fraunhofer C, d and F lines (656.3/587.6/486.1 nm):
@@ -131,7 +132,8 @@ inline float GlassViewToRefractedPath(float cosIncident, float ior)
 
 inline float GlassComputeApproxThickness(float fallbackThickness, float3 normalWS, float3 viewDirWS, float minDenominator)
 {
-    float ndotv = abs(dot(normalize(normalWS), normalize(viewDirWS)));
+    // Both vectors arrive normalized.
+    float ndotv = abs(dot(normalWS, viewDirWS));
     float denom = max(ndotv, GlassSafePositive(minDenominator));
     return fallbackThickness / denom;
 }

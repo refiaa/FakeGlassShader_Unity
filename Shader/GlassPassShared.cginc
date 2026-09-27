@@ -261,8 +261,9 @@ inline float GlassDispersionCapScale(float2 separationUV)
     return pixels > _ChromaticAberration ? _ChromaticAberration / max(pixels, 1e-5) : 1.0;
 }
 
-// Physical dispersion: R and B are traced with their own indices (Abbe number) through the same path as G,
-// so fringes follow the actual bending and vanish where light is not bent.
+// Physical dispersion: B is traced with its own index (Abbe number) through the same path as G, so fringes
+// follow the actual bending and vanish where light is not bent. The shift is linear in the index to within
+// O(dn^2) (dn ~ 0.006), and Cauchy fixes nR - nd = -0.4301695 * (nF - nd) for every glass, so R needs no trace.
 inline float3 SampleDispersedSceneColor(
     float3 worldPos,
     float3 viewDirWS,
@@ -277,24 +278,23 @@ inline float3 SampleDispersedSceneColor(
     float2 refractedUV,
     float4 refractedGrabPos)
 {
+    const float dispersionRatioR = -0.4301695; // (1/lC^2 - 1/ld^2) / (1/lF^2 - 1/ld^2)
     float3 dispersedIor = GlassDispersedIor(_IOR, _AbbeNumber);
-    float2 uvOffsetR;
-    float2 grabOffsetR;
     float2 uvOffsetB;
     float2 grabOffsetB;
-    GlassTraceRefraction(dispersedIor.r, worldPos, viewDirWS, normalWS, geomNormalWS, pathLength, refractionScale, frontDepth, screenUV, grabPos, uvOffsetR, grabOffsetR);
     GlassTraceRefraction(dispersedIor.b, worldPos, viewDirWS, normalWS, geomNormalWS, pathLength, refractionScale, frontDepth, screenUV, grabPos, uvOffsetB, grabOffsetB);
 
     float2 grabOffsetG = (refractedGrabPos.xy - grabPos.xy) / max(grabPos.w, 1e-5);
-    float2 separationR = uvOffsetR - refractionOffset;
     float2 separationB = uvOffsetB - refractionOffset;
+    float2 grabSeparationB = grabOffsetB - grabOffsetG;
+    float2 separationR = separationB * dispersionRatioR;
     float capR = GlassDispersionCapScale(separationR);
     float capB = GlassDispersionCapScale(separationB);
 
     float4 grabPosR = refractedGrabPos;
     float4 grabPosB = refractedGrabPos;
-    grabPosR.xy += (grabOffsetR - grabOffsetG) * capR * refractedGrabPos.w;
-    grabPosB.xy += (grabOffsetB - grabOffsetG) * capB * refractedGrabPos.w;
+    grabPosR.xy += grabSeparationB * (dispersionRatioR * capR * refractedGrabPos.w);
+    grabPosB.xy += grabSeparationB * (capB * refractedGrabPos.w);
 
     float3 sceneColor;
     sceneColor.r = SampleSceneColor(ClampSceneUV(refractedUV + separationR * capR), grabPosR).r;

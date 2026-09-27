@@ -14,17 +14,13 @@ inline float GlassDistributionGGX(float nDotH, float roughnessLinear)
     return a2 / max(UNITY_PI * d * d, 1e-6);
 }
 
-inline float GlassGeometrySchlickGGX(float nDotX, float roughnessLinear)
+// Smith-Schlick visibility G / (4 NL NV): the NL * NV of G cancels the BRDF denominator.
+inline float GlassVisibilitySmith(float nDotL, float nDotV, float roughnessLinear)
 {
     float a = max(roughnessLinear, 0.002);
     float k = (a + 1.0);
     k = (k * k) * 0.125;
-    return nDotX / max(nDotX * (1.0 - k) + k, 1e-6);
-}
-
-inline float GlassGeometrySmith(float nDotL, float nDotV, float roughnessLinear)
-{
-    return GlassGeometrySchlickGGX(nDotL, roughnessLinear) * GlassGeometrySchlickGGX(nDotV, roughnessLinear);
+    return 0.25 / max((nDotL * (1.0 - k) + k) * (nDotV * (1.0 - k) + k), 1e-6);
 }
 
 inline void SampleSurfaceParameters(float2 baseUV, out float perceptualRoughness, out float roughnessLinear, out float metallic)
@@ -62,12 +58,13 @@ inline float3 GlassBoxProjectedDirection(float3 dirWS, float3 worldPos, float4 p
     [branch]
     if (probePosition.w > 0.0)
     {
-        float3 dir = normalize(dirWS);
-        float3 toBoxMax = (boxMax.xyz - worldPos) / dir;
-        float3 toBoxMin = (boxMin.xyz - worldPos) / dir;
-        float3 toExit = dir > 0.0 ? toBoxMax : toBoxMin;
+        // dirWS is reflect() of unit vectors, hence already unit length.
+        float3 invDir = 1.0 / dirWS;
+        float3 toBoxMax = (boxMax.xyz - worldPos) * invDir;
+        float3 toBoxMin = (boxMin.xyz - worldPos) * invDir;
+        float3 toExit = dirWS > 0.0 ? toBoxMax : toBoxMin;
         float exitDistance = min(min(toExit.x, toExit.y), toExit.z);
-        return worldPos - probePosition.xyz + dir * exitDistance;
+        return worldPos - probePosition.xyz + dirWS * exitDistance;
     }
 #endif
     return dirWS;
