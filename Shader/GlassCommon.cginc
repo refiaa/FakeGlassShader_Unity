@@ -39,6 +39,15 @@ inline float3 GlassComputeTransmittance(float3 sigma, float thickness)
     return exp(-sigma * max(thickness, 0.0));
 }
 
+// Ambient light scattered toward the viewer along the path (single scattering, isotropic phase):
+// radiance = ambient * (sigmaS / sigmaT) * (1 - T). Channels that absorb least scatter most, so long paths turn green.
+// Ambient is the SH band-0 average radiance; with scattering 0 this adds nothing.
+inline float3 GlassComputeInScattering(float scattering, float3 sigmaT, float3 transmittance)
+{
+    float3 ambient = max(float3(unity_SHAr.w, unity_SHAg.w, unity_SHAb.w), 0.0);
+    return ambient * (scattering / max(sigmaT, GLASS_EPSILON)) * (1.0 - transmittance);
+}
+
 inline float GlassNormalizeThickness(float thickness, float maxThickness)
 {
     float safeMax = GlassSafePositive(maxThickness);

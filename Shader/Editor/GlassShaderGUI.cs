@@ -17,6 +17,7 @@ public sealed class GlassShaderGUI : ShaderGUI
         public static readonly GUIContent TransmittanceAtDistance = new GUIContent("Transmittance At Reference Distance");
         public static readonly GUIContent ReferenceDistance = new GUIContent("Reference Distance (Meters)");
         public static readonly GUIContent TransmittanceInfluence = new GUIContent("Transmittance Influence");
+        public static readonly GUIContent Scattering = new GUIContent("Internal Scattering (1/m)");
         public static readonly GUIContent TransmittanceCurvePower = new GUIContent("Transmittance Curve Power");
         public static readonly GUIContent DepthTintStrength = new GUIContent("Depth Tint Strength");
         public static readonly GUIContent DepthTintCurve = new GUIContent("Depth Tint Curve");
@@ -116,6 +117,7 @@ public sealed class GlassShaderGUI : ShaderGUI
         public const string TransmissionColorAtDistance = "_TransmissionColorAtDistance";
         public const string ReferenceDistance = "_ReferenceDistance";
         public const string TransmittanceInfluence = "_TransmittanceInfluence";
+        public const string Scattering = "_Scattering";
         public const string TransmittanceCurvePower = "_TransmittanceCurvePower";
         public const string DepthTintStrength = "_DepthTintStrength";
         public const string DepthTintCurve = "_DepthTintCurve";
@@ -237,6 +239,7 @@ public sealed class GlassShaderGUI : ShaderGUI
     private MaterialProperty _transmissionColorAtDistance;
     private MaterialProperty _referenceDistance;
     private MaterialProperty _transmittanceInfluence;
+    private MaterialProperty _scattering;
     private MaterialProperty _transmittanceCurvePower;
     private MaterialProperty _depthTintStrength;
     private MaterialProperty _depthTintCurve;
@@ -412,6 +415,7 @@ public sealed class GlassShaderGUI : ShaderGUI
         BindProperty(ref _transmissionColorAtDistance, Names.TransmissionColorAtDistance, properties);
         BindProperty(ref _referenceDistance, Names.ReferenceDistance, properties);
         BindProperty(ref _transmittanceInfluence, Names.TransmittanceInfluence, properties);
+        BindProperty(ref _scattering, Names.Scattering, properties);
         BindProperty(ref _transmittanceCurvePower, Names.TransmittanceCurvePower, properties);
         BindProperty(ref _depthTintStrength, Names.DepthTintStrength, properties);
         BindProperty(ref _depthTintCurve, Names.DepthTintCurve, properties);
@@ -690,6 +694,7 @@ public sealed class GlassShaderGUI : ShaderGUI
         DrawProperty(materialEditor, _transmittanceCurvePower, Styles.TransmittanceCurvePower);
         DrawProperty(materialEditor, _depthTintStrength, Styles.DepthTintStrength);
         DrawProperty(materialEditor, _depthTintCurve, Styles.DepthTintCurve);
+        DrawProperty(materialEditor, _scattering, Styles.Scattering);
         DrawProperty(materialEditor, _thicknessScale, Styles.ThicknessScale);
         DrawProperty(materialEditor, _thicknessBias, Styles.ThicknessBias);
         DrawProperty(materialEditor, _maxThickness, Styles.MaxThickness);

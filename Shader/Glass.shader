@@ -10,6 +10,7 @@ Shader "refiaa/glass"
         _TransmittanceCurvePower("Transmittance Curve Power", Range(0.250, 4.000)) = 1.000
         _DepthTintStrength("Depth Tint Strength", Range(0.000, 3.000)) = 0.450
         _DepthTintCurve("Depth Tint Curve", Range(0.250, 4.000)) = 1.250
+        _Scattering("Internal Scattering (1/m)", Range(0.000, 5.000)) = 0.000
         _ThicknessScale("Thickness Scale", Range(0.010, 10.000)) = 0.500
         _ThicknessBias("Thickness Bias (Meters)", Range(-0.020, 0.020)) = 0.020
         _MaxThickness("Max Thickness (Meters)", Range(0.001, 2.000)) = 0.200
@@ -199,6 +200,7 @@ Shader "refiaa/glass"
             float _TransmittanceCurvePower;
             float _DepthTintStrength;
             float _DepthTintCurve;
+            float _Scattering;
             float _ThicknessScale;
             float _ThicknessBias;
             float _MaxThickness;
@@ -370,6 +372,8 @@ Shader "refiaa/glass"
 
                 float3 sigma = GlassSigmaFromReferenceColor(_TransmissionColorAtDistance.rgb, _ReferenceDistance);
                 sigma *= saturate(_TransmittanceInfluence);
+                float scattering = max(_Scattering, 0.0);
+                sigma += scattering;
                 float maxThicknessSafe = max(_MaxThickness, 1e-5);
                 float normalizedAbsorptionRaw = GlassNormalizeThickness(absorptionThicknessRaw, maxThicknessSafe);
                 float thicknessCurve01 = GlassApplyTransmittanceCurve(normalizedAbsorptionRaw, _TransmittanceCurvePower);
@@ -512,7 +516,8 @@ Shader "refiaa/glass"
                 float3 transmissionInterreflection = 1.0 / max(1.0.xxx - transmissionLoss * transmissionLoss * transmittanceSq, 1e-4);
                 float3 transmissionWeight = (1.0 - transmissionLoss) * (1.0 - transmissionLoss) * transmissionInterreflection;
                 transmissionWeight *= lerp(1.0, oneMinusReflectivity, metallic);
-                float3 composedColor = reflectionColor + sceneColor * transmittance * transmissionWeight;
+                float3 inScattered = GlassComputeInScattering(scattering, sigma, transmittance);
+                float3 composedColor = reflectionColor + (sceneColor * transmittance + inScattered) * transmissionWeight;
                 float3 finalColor = lerp(sceneColor, composedColor, saturate(_BaseTint.a));
 
                 [branch]
@@ -596,6 +601,7 @@ Shader "refiaa/glass"
             float4 _RoughnessMap_ST;
             float _ReferenceDistance;
             float _TransmittanceInfluence;
+            float _Scattering;
             float _FallbackThickness;
             float _FallbackUseAngle;
             float _MinViewDot;
@@ -822,6 +828,7 @@ Shader "refiaa/glass"
 
                 float3 sigma = GlassSigmaFromReferenceColor(_TransmissionColorAtDistance.rgb, _ReferenceDistance);
                 sigma *= saturate(_TransmittanceInfluence);
+                sigma += max(_Scattering, 0.0);
                 float3 transmittance = GlassComputeTransmittance(sigma, approxThickness);
 
                 float3 finalColor = sceneColor * transmittance;
