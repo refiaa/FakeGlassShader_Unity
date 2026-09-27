@@ -94,7 +94,8 @@ public static class GlassMeshEdgeBaker
             return null;
         }
 
-        if (source.name.EndsWith("_GlassEdge"))
+        // Unity renames the mesh to its asset file name, which may carry a " 1" style suffix.
+        if (source.name.Contains("_GlassEdge"))
         {
             bakedBySource[source] = source;
             return source;
@@ -271,6 +272,7 @@ public static class GlassMeshEdgeBaker
         var dstTangents = new List<Vector4>(triangles.Count * 3);
         var dstColors = new List<Color>(triangles.Count * 3);
         var dstBoneWeights = new List<BoneWeight>(triangles.Count * 3);
+        var dstSourceIndices = new List<int>(triangles.Count * 3);
         var dstUv = new List<Vector4>[8];
         for (int channel = 0; channel < dstUv.Length; channel++)
         {
@@ -347,6 +349,10 @@ public static class GlassMeshEdgeBaker
                 dstBoneWeights,
                 dstUv);
 
+            dstSourceIndices.Add(tri.I0);
+            dstSourceIndices.Add(tri.I1);
+            dstSourceIndices.Add(tri.I2);
+
             dstSubmeshIndices[tri.Submesh].Add(baseIndex + 0);
             dstSubmeshIndices[tri.Submesh].Add(baseIndex + 1);
             dstSubmeshIndices[tri.Submesh].Add(baseIndex + 2);
@@ -393,6 +399,11 @@ public static class GlassMeshEdgeBaker
             baked.bindposes = srcBindposes;
         }
 
+        if (source.blendShapeCount > 0 && dstSourceIndices.Count == dstVertices.Count)
+        {
+            CopyBlendShapes(source, baked, dstSourceIndices);
+        }
+
         baked.subMeshCount = source.subMeshCount;
         for (int submesh = 0; submesh < source.subMeshCount; submesh++)
         {
@@ -401,6 +412,42 @@ public static class GlassMeshEdgeBaker
 
         baked.RecalculateBounds();
         return baked;
+    }
+
+    private static void CopyBlendShapes(Mesh source, Mesh baked, List<int> dstSourceIndices)
+    {
+        int srcCount = source.vertexCount;
+        int dstCount = dstSourceIndices.Count;
+        var srcDeltaVertices = new Vector3[srcCount];
+        var srcDeltaNormals = new Vector3[srcCount];
+        var srcDeltaTangents = new Vector3[srcCount];
+        var dstDeltaVertices = new Vector3[dstCount];
+        var dstDeltaNormals = new Vector3[dstCount];
+        var dstDeltaTangents = new Vector3[dstCount];
+
+        for (int shape = 0; shape < source.blendShapeCount; shape++)
+        {
+            string shapeName = source.GetBlendShapeName(shape);
+            int frameCount = source.GetBlendShapeFrameCount(shape);
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                source.GetBlendShapeFrameVertices(shape, frame, srcDeltaVertices, srcDeltaNormals, srcDeltaTangents);
+                for (int i = 0; i < dstCount; i++)
+                {
+                    int src = dstSourceIndices[i];
+                    dstDeltaVertices[i] = srcDeltaVertices[src];
+                    dstDeltaNormals[i] = srcDeltaNormals[src];
+                    dstDeltaTangents[i] = srcDeltaTangents[src];
+                }
+
+                baked.AddBlendShapeFrame(
+                    shapeName,
+                    source.GetBlendShapeFrameWeight(shape, frame),
+                    dstDeltaVertices,
+                    dstDeltaNormals,
+                    dstDeltaTangents);
+            }
+        }
     }
 
     private static void AppendVertex(
