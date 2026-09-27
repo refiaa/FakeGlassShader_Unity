@@ -70,29 +70,12 @@ inline float3 SampleSceneColorOffset(float2 baseUV, float4 baseGrabPos, float2 u
     return SampleSceneColor(uv, grabPos);
 }
 
-inline float GlassComputeBlurTapWeight(float normalizedRadius, float kernelSigma)
-{
-    float clampedRadius = saturate(normalizedRadius);
-    float gaussian = GlassGaussianWeight(clampedRadius * (float)GLASS_REFRACTION_BLUR_RADIUS, kernelSigma);
-    float centerBias = lerp(1.0, 0.88, clampedRadius);
-    return gaussian * centerBias;
-}
+// sqrt(i + 0.5) for the Vogel taps; the radius of tap i is this times sqrt(1 / tapCount).
+static const float kVogelSqrtIndex[14] = { 0.7071068, 1.2247449, 1.5811388, 1.8708287, 2.1213203, 2.3452079, 2.5495098, 2.7386128, 2.9154759, 3.0822070, 3.2403703, 3.3911650, 3.5355339, 3.6742346 };
 
 inline float GlassInterleavedGradientNoise(float2 pixelCoord)
 {
     return frac(52.9829189 * frac(dot(pixelCoord, float2(0.06711056, 0.00583715))));
-}
-
-inline float2 GlassVogelDiskOffset(int sampleIndex, float sampleCount, float phase)
-{
-    const float kGoldenAngle = 2.39996323;
-    float fi = (float)sampleIndex + 0.5;
-    float r = sqrt(fi / max(sampleCount, 1.0));
-    float angle = fi * kGoldenAngle + phase;
-    float sinA;
-    float cosA;
-    sincos(angle, sinA, cosA);
-    return float2(cosA, sinA) * r;
 }
 
 inline void AccumulateRefractionBlurTap(
@@ -129,7 +112,6 @@ inline float3 SampleRefractionBlurredSceneColor(
     if (highQuality > 0.5 && blurRadiusPixels >= 1.20) tapCount = 14;
     float tapCountF = (float)tapCount;
 
-    float wCenter = GlassComputeBlurTapWeight(0.0, kernelSigma);
     float3 accum = 0.0.xxx;
     float weightSum = 0.0;
 
@@ -138,17 +120,36 @@ inline float3 SampleRefractionBlurredSceneColor(
     float kernelNoise = GlassInterleavedGradientNoise(kernelTileCoord);
     float kernelPhase = kernelNoise * 6.28318531;
 
-    // Center
-    AccumulateRefractionBlurTap(baseUV, baseGrabPos, blurRadiusUV, float2(0.0, 0.0), wCenter, accum, weightSum);
+    // Center (radius 0: Gaussian 1, bias 1)
+    AccumulateRefractionBlurTap(baseUV, baseGrabPos, blurRadiusUV, float2(0.0, 0.0), 1.0, accum, weightSum);
+
+    // Vogel disk by recurrence instead of per-tap trigonometry:
+    // - tap i sits at angle (i + 0.5) * golden + phase, so its direction is the previous one times the
+    //   unit complex number (cos g, sin g): one sincos per pixel;
+    // - its radius^2 = (i + 0.5) / N is linear in i, so the Gaussian exp(-(R r)^2 / (2 sigma^2)) is a geometric
+    //   series: one exp per pixel. Weight = Gaussian * (1 - 0.12 r), the former lerp(1, 0.88, r).
+    const float kGoldenAngle = 2.39996323;
+    const float2 kGoldenRotation = float2(-0.7373689, 0.6754903);
+    float invTapCount = 1.0 / tapCountF;
+    float radiusScale = sqrt(invTapCount);
+    float sigmaSafe = max(kernelSigma, 0.35);
+    float blurRadiusTaps = (float)GLASS_REFRACTION_BLUR_RADIUS;
+    float gaussianStep = exp(-blurRadiusTaps * blurRadiusTaps * invTapCount * 0.5 / (sigmaSafe * sigmaSafe));
+    float gaussian = sqrt(gaussianStep);
+    float2 direction;
+    sincos(0.5 * kGoldenAngle + kernelPhase, direction.y, direction.x);
 
     const int kMaxVogelTaps = 14;
     [loop]
     for (int i = 0; i < kMaxVogelTaps; i++)
     {
         if (i >= tapCount) break;
-        float2 sampleOffset = GlassVogelDiskOffset(i, tapCountF, kernelPhase);
-        float weight = GlassComputeBlurTapWeight(length(sampleOffset), kernelSigma);
-        AccumulateRefractionBlurTap(baseUV, baseGrabPos, blurRadiusUV, sampleOffset, weight, accum, weightSum);
+        float r = kVogelSqrtIndex[i] * radiusScale;
+        AccumulateRefractionBlurTap(baseUV, baseGrabPos, blurRadiusUV, direction * r, gaussian * (1.0 - 0.12 * r), accum, weightSum);
+        direction = float2(
+            direction.x * kGoldenRotation.x - direction.y * kGoldenRotation.y,
+            direction.x * kGoldenRotation.y + direction.y * kGoldenRotation.x);
+        gaussian *= gaussianStep;
     }
 
     return accum / max(weightSum, 1e-5);
@@ -257,8 +258,10 @@ inline float2 GlassComputeRefraction(
 // Limits a channel's separation from green to _ChromaticAberration pixels (a safety cap; physical values rarely reach it).
 inline float GlassDispersionCapScale(float2 separationUV)
 {
-    float pixels = length(separationUV * _ScreenParams.xy);
-    return pixels > _ChromaticAberration ? _ChromaticAberration / max(pixels, 1e-5) : 1.0;
+    float2 separationPixels = separationUV * _ScreenParams.xy;
+    float pixelsSq = dot(separationPixels, separationPixels);
+    // Compare squared lengths; the square root is only needed when the cap applies.
+    return pixelsSq > _ChromaticAberration * _ChromaticAberration ? _ChromaticAberration * rsqrt(max(pixelsSq, 1e-10)) : 1.0;
 }
 
 // Physical dispersion: B is traced with its own index (Abbe number) through the same path as G, so fringes
