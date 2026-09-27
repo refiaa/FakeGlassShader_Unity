@@ -4,6 +4,8 @@
 
 ## Introduction
 
+<img src="./Media/image2.png" width="100%" alt="Thickness Visualization" />
+
 A physically-based glass shader designed for the **Unity Built-in Render Pipeline (BRP)** and **VRChat** environments.
 
 This shader applies the **Beer-Lambert Law** to simulate physical light absorption based on the thickness of the glass. This achieves a realistic glass material where thin areas appear transparent, while thicker areas appear denser and darker.
