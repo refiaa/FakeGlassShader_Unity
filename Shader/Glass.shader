@@ -336,20 +336,20 @@ Shader "refiaa/glass"
                 }
                 approxThickness = approxThickness * _ThicknessScale + _ThicknessBias;
 
-                // Back-front eye depth measures along the camera axis; convert it to the view-ray length.
-                float viewRayScale = distance(input.worldPos, _WorldSpaceCameraPos) / max(frontDepth, 1e-4);
-
                 // An unassigned slot holds Unity's 4x4 default (black; linear depth 0 = invalid), and no screen-space
                 // depth target is that small: skip the 5 fetches whenever they could only produce "invalid".
+                // The exact thickness only matters when valid (its lerp weight is 0 otherwise), so it is built in the branch.
                 float exactValid = 0.0;
-                float backDepth = frontDepth;
+                float exactThickness = 0.0;
                 bool backDepthUnassigned = _UseUdonStereoTextures < 0.5 && _BackDepthTex_TexelSize.z <= 4.0 && _BackDepthIsLinear > 0.5;
                 [branch]
                 if (_UseBackDepthTexture > 0.5 && !backDepthUnassigned)
                 {
-                    backDepth = SampleBackDepthRobust(screenUV, frontDepth, exactValid);
+                    float backDepth = SampleBackDepthRobust(screenUV, frontDepth, exactValid);
+                    // Back-front eye depth measures along the camera axis; convert it to the view-ray length.
+                    float viewRayScale = distance(input.worldPos, _WorldSpaceCameraPos) / max(frontDepth, 1e-4);
+                    exactThickness = (backDepth - frontDepth) * viewRayScale * _ThicknessScale + _ThicknessBias;
                 }
-                float exactThickness = (backDepth - frontDepth) * viewRayScale * _ThicknessScale + _ThicknessBias;
                 float useExactThickness = step(0.5, _UseBackDepthTexture) * exactValid;
                 float thickness = lerp(approxThickness, exactThickness, useExactThickness);
                 thickness = clamp(thickness, 0.0, _MaxThickness);
@@ -501,7 +501,9 @@ Shader "refiaa/glass"
                 float3 reflectionDirWS = reflect(-viewDirWS, normalWS);
                 float3 envReflection = SampleEnvironmentReflections(reflectionDirWS, perceptualRoughness, input.worldPos);
 
-                float3 lightDirWS = normalize(UnityWorldSpaceLightDir(input.worldPos));
+                // ForwardBase only ever gets the main directional light (w = 0), whose direction Unity supplies
+                // normalized (or zero when there is none).
+                float3 lightDirWS = _WorldSpaceLightPos0.xyz;
                 float3 halfDirWS = normalize(lightDirWS + viewDirWS);
                 float nDotL = saturate(dot(normalWS, lightDirWS));
                 float nDotH = saturate(dot(normalWS, halfDirWS));
@@ -531,7 +533,12 @@ Shader "refiaa/glass"
                 float3 transmissionInterreflection = 1.0 / max(1.0.xxx - transmissionLoss * transmissionLoss * transmittanceSq, 1e-4);
                 float3 transmissionWeight = (1.0 - transmissionLoss) * (1.0 - transmissionLoss) * transmissionInterreflection;
                 transmissionWeight *= lerp(1.0, oneMinusReflectivity, metallic);
-                float3 inScattered = GlassComputeInScattering(scattering, sigma, transmittance);
+                float3 inScattered = 0.0.xxx;
+                [branch]
+                if (scattering > 0.0)
+                {
+                    inScattered = GlassComputeInScattering(scattering, sigma, transmittance);
+                }
                 float3 composedColor = reflectionColor + (sceneColor * transmittance + inScattered) * transmissionWeight;
                 float3 finalColor = lerp(sceneColor, composedColor, saturate(_BaseTint.a));
 

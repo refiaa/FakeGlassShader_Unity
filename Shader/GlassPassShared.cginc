@@ -225,9 +225,10 @@ inline void GlassTraceRefraction(
     grabOffset = 0.0.xx;
     if (sampleCS.w > 1e-4)
     {
-        uvOffset = GlassGetScreenUV(ComputeScreenPos(sampleCS)) - screenUV;
-        float4 sampleGrab = ComputeGrabScreenPos(sampleCS);
-        grabOffset = sampleGrab.xy / sampleGrab.w - grabPos.xy / max(grabPos.w, 1e-5);
+        // Screen and grab positions share the clip-space w: one reciprocal serves both.
+        float invW = 1.0 / sampleCS.w;
+        uvOffset = GlassScreenUVFromPos(ComputeScreenPos(sampleCS), invW) - screenUV;
+        grabOffset = ComputeGrabScreenPos(sampleCS).xy * invW - grabPos.xy / max(grabPos.w, 1e-5);
     }
 }
 

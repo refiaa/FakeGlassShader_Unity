@@ -15,9 +15,10 @@ inline float GlassSafeRcp(float value)
     return 1.0 / GlassSafePositive(abs(value));
 }
 
-inline float2 GlassGetScreenUV(float4 screenPos)
+// Screen UV from a ComputeScreenPos() value when 1 / w is already known.
+inline float2 GlassScreenUVFromPos(float4 screenPos, float invW)
 {
-    float2 uv = screenPos.xy * GlassSafeRcp(screenPos.w);
+    float2 uv = screenPos.xy * invW;
 #if UNITY_UV_STARTS_AT_TOP
     if (_ProjectionParams.x < 0.0)
     {
@@ -25,6 +26,11 @@ inline float2 GlassGetScreenUV(float4 screenPos)
     }
 #endif
     return uv;
+}
+
+inline float2 GlassGetScreenUV(float4 screenPos)
+{
+    return GlassScreenUVFromPos(screenPos, GlassSafeRcp(screenPos.w));
 }
 
 inline float3 GlassSigmaFromReferenceColor(float3 transmittanceAtReference, float referenceDistance)
