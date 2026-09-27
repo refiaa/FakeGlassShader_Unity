@@ -34,7 +34,8 @@ Shader "refiaa/glass"
         _DistortionEdge("Distortion (Edge)", Range(0.000, 1.000)) = 0.000
         _BackfaceVisibility("Backface Visibility", Range(0.000, 1.000)) = 0.350
         [Toggle] _UseChromaticAberration("Use Chromatic Aberration", Float) = 1
-        _ChromaticAberration("Chromatic Aberration (Pixels)", Range(0.000, 3.000)) = 3.000
+        _ChromaticAberration("Max Dispersion (Pixels)", Range(0.000, 3.000)) = 3.000
+        _AbbeNumber("Abbe Number", Range(10.000, 90.000)) = 58.000
         _ScreenEdgeFadePixels("Refraction Screen Edge Fade (Pixels)", Range(0.0, 32.0)) = 32.000
 
         [Header(Refraction Blur)]
@@ -222,6 +223,7 @@ Shader "refiaa/glass"
             float _DistortionEdge;
             float _UseChromaticAberration;
             float _ChromaticAberration;
+            float _AbbeNumber;
             float _ScreenEdgeFadePixels;
             float _UseRefractionBlur;
             float _RefractionBlurStrength;
@@ -400,11 +402,12 @@ Shader "refiaa/glass"
                 // Absorption keeps the long view-ray path (deep tint at edges); the image shift uses the
                 // bounded path along the refracted ray.
                 float refractionPath = thickness * GlassViewToRefractedPath(abs(dot(normalWS, viewDirWS)), _IOR);
+                float3 geomNormalWS = normalize(input.normalWS);
                 float2 refractionOffset = GlassComputeRefraction(
                     input.worldPos,
                     viewDirWS,
                     normalWS,
-                    normalize(input.normalWS),
+                    geomNormalWS,
                     refractionPath,
                     refractionScale,
                     frontDepth,
@@ -416,7 +419,19 @@ Shader "refiaa/glass"
                 float3 sceneColorBase;
                 if (_UseChromaticAberration > 0.5)
                 {
-                    sceneColorBase = SampleChromaticSceneColor(refractedUV, refractedGrabPos, refractionOffset, baseRefractionScale);
+                    sceneColorBase = SampleDispersedSceneColor(
+                        input.worldPos,
+                        viewDirWS,
+                        normalWS,
+                        geomNormalWS,
+                        refractionPath,
+                        refractionScale,
+                        frontDepth,
+                        screenUV,
+                        input.grabPos,
+                        refractionOffset,
+                        refractedUV,
+                        refractedGrabPos);
                 }
                 else
                 {
@@ -616,6 +631,7 @@ Shader "refiaa/glass"
             float _BackfaceVisibility;
             float _UseChromaticAberration;
             float _ChromaticAberration;
+            float _AbbeNumber;
             float _ScreenEdgeFadePixels;
             float _UseRefractionBlur;
             float _RefractionBlurStrength;
@@ -756,12 +772,15 @@ Shader "refiaa/glass"
                 // Back faces point away from the viewer; flip so the same entry/exit trace applies.
                 float2 refractedUV;
                 float4 refractedGrabPos;
+                float3 facingNormalWS = -normalWS;
+                float3 facingGeomNormalWS = -normalize(input.normalWS);
+                float refractionPath = approxThickness * GlassViewToRefractedPath(abs(dot(normalWS, viewDirWS)), _IOR);
                 float2 refractionOffset = GlassComputeRefraction(
                     input.worldPos,
                     viewDirWS,
-                    -normalWS,
-                    -normalize(input.normalWS),
-                    approxThickness * GlassViewToRefractedPath(abs(dot(normalWS, viewDirWS)), _IOR),
+                    facingNormalWS,
+                    facingGeomNormalWS,
+                    refractionPath,
                     refractionScale,
                     frontDepth,
                     screenUV,
@@ -772,7 +791,19 @@ Shader "refiaa/glass"
                 float3 sceneColorBase;
                 if (_UseChromaticAberration > 0.5)
                 {
-                    sceneColorBase = SampleChromaticSceneColor(refractedUV, refractedGrabPos, refractionOffset, baseRefractionScale);
+                    sceneColorBase = SampleDispersedSceneColor(
+                        input.worldPos,
+                        viewDirWS,
+                        facingNormalWS,
+                        facingGeomNormalWS,
+                        refractionPath,
+                        refractionScale,
+                        frontDepth,
+                        screenUV,
+                        input.grabPos,
+                        refractionOffset,
+                        refractedUV,
+                        refractedGrabPos);
                 }
                 else
                 {

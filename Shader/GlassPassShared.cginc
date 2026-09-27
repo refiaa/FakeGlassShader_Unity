@@ -62,28 +62,6 @@ inline float3 ComputeNormalWS(Varyings input, float2 normalUV)
     return normalWS;
 }
 
-inline float3 SampleChromaticSceneColor(float2 refractedUV, float4 refractedGrabPos, float2 refractionOffset, float chromaScale)
-{
-    float2 pixelSize = GetScreenTexelSize();
-    float2 chromaDir = normalize(refractionOffset + float2(1e-6, 0.0));
-    // Dispersion scales with how much the light is actually bent; unbent light shows no fringes.
-    float chromaFade = saturate(min(chromaScale, length(refractionOffset)) / max(_RefractionStrength, 1e-5));
-    float2 chromaOffset = chromaDir * (_ChromaticAberration * pixelSize * chromaFade);
-
-    float2 uvR = ClampSceneUV(refractedUV + chromaOffset);
-    float2 uvB = ClampSceneUV(refractedUV - chromaOffset);
-    float4 grabPosR = refractedGrabPos;
-    float4 grabPosB = refractedGrabPos;
-    grabPosR.xy += chromaOffset * grabPosR.w;
-    grabPosB.xy -= chromaOffset * grabPosB.w;
-
-    float3 sceneColor;
-    sceneColor.r = SampleSceneColor(uvR, grabPosR).r;
-    sceneColor.g = SampleSceneColor(refractedUV, refractedGrabPos).g;
-    sceneColor.b = SampleSceneColor(uvB, grabPosB).b;
-    return sceneColor;
-}
-
 inline float3 SampleSceneColorOffset(float2 baseUV, float4 baseGrabPos, float2 uvOffset)
 {
     float2 uv = ClampSceneUV(baseUV + uvOffset);
@@ -209,7 +187,8 @@ inline float GlassComputeValidatedDistortionEdgeMask(float3 barycentric, float3 
 // The exit surface is parallel to the geometric surface (thin pane) or a sphere with the same chord (solid).
 // The exit point is projected exactly (physical lateral shift); the exit deviation is carried a virtual distance
 // chosen so that refractionScale stays a screen UV offset per unit of deviation.
-inline float2 GlassComputeRefraction(
+inline void GlassTraceRefraction(
+    float ior,
     float3 worldPos,
     float3 viewDirWS,
     float3 normalWS,
@@ -219,10 +198,10 @@ inline float2 GlassComputeRefraction(
     float frontDepth,
     float2 screenUV,
     float4 grabPos,
-    out float2 refractedUV,
-    out float4 refractedGrabPos)
+    out float2 uvOffset,
+    out float2 grabOffset)
 {
-    float ior = max(_IOR, 1.0);
+    ior = max(ior, 1.0);
     float path = max(pathLength, 0.0);
     float3 incident = -viewDirWS;
     float3 inside = GlassRefractDirection(incident, normalWS, 1.0 / ior);
@@ -241,19 +220,87 @@ inline float2 GlassComputeRefraction(
     float virtualDistance = max(refractionScale, 0.0) * 2.0 * frontDepth / max(abs(UNITY_MATRIX_P._m11), 1e-4);
     float4 sampleCS = mul(UNITY_MATRIX_VP, float4(exitPoint + (outDir - incident) * virtualDistance, 1.0));
 
-    float2 uvOffset = 0.0.xx;
-    float2 grabOffset = 0.0.xx;
+    uvOffset = 0.0.xx;
+    grabOffset = 0.0.xx;
     if (sampleCS.w > 1e-4)
     {
         uvOffset = GlassGetScreenUV(ComputeScreenPos(sampleCS)) - screenUV;
         float4 sampleGrab = ComputeGrabScreenPos(sampleCS);
         grabOffset = sampleGrab.xy / sampleGrab.w - grabPos.xy / max(grabPos.w, 1e-5);
     }
+}
+
+// Traces the d-line (green) ray, which sets the refracted sample position for all channels.
+inline float2 GlassComputeRefraction(
+    float3 worldPos,
+    float3 viewDirWS,
+    float3 normalWS,
+    float3 geomNormalWS,
+    float pathLength,
+    float refractionScale,
+    float frontDepth,
+    float2 screenUV,
+    float4 grabPos,
+    out float2 refractedUV,
+    out float4 refractedGrabPos)
+{
+    float2 uvOffset;
+    float2 grabOffset;
+    GlassTraceRefraction(_IOR, worldPos, viewDirWS, normalWS, geomNormalWS, pathLength, refractionScale, frontDepth, screenUV, grabPos, uvOffset, grabOffset);
 
     refractedUV = ClampSceneUV(screenUV + uvOffset);
     refractedGrabPos = grabPos;
     refractedGrabPos.xy += grabOffset * grabPos.w;
     return uvOffset;
+}
+
+// Limits a channel's separation from green to _ChromaticAberration pixels (a safety cap; physical values rarely reach it).
+inline float GlassDispersionCapScale(float2 separationUV)
+{
+    float pixels = length(separationUV * _ScreenParams.xy);
+    return pixels > _ChromaticAberration ? _ChromaticAberration / max(pixels, 1e-5) : 1.0;
+}
+
+// Physical dispersion: R and B are traced with their own indices (Abbe number) through the same path as G,
+// so fringes follow the actual bending and vanish where light is not bent.
+inline float3 SampleDispersedSceneColor(
+    float3 worldPos,
+    float3 viewDirWS,
+    float3 normalWS,
+    float3 geomNormalWS,
+    float pathLength,
+    float refractionScale,
+    float frontDepth,
+    float2 screenUV,
+    float4 grabPos,
+    float2 refractionOffset,
+    float2 refractedUV,
+    float4 refractedGrabPos)
+{
+    float3 dispersedIor = GlassDispersedIor(_IOR, _AbbeNumber);
+    float2 uvOffsetR;
+    float2 grabOffsetR;
+    float2 uvOffsetB;
+    float2 grabOffsetB;
+    GlassTraceRefraction(dispersedIor.r, worldPos, viewDirWS, normalWS, geomNormalWS, pathLength, refractionScale, frontDepth, screenUV, grabPos, uvOffsetR, grabOffsetR);
+    GlassTraceRefraction(dispersedIor.b, worldPos, viewDirWS, normalWS, geomNormalWS, pathLength, refractionScale, frontDepth, screenUV, grabPos, uvOffsetB, grabOffsetB);
+
+    float2 grabOffsetG = (refractedGrabPos.xy - grabPos.xy) / max(grabPos.w, 1e-5);
+    float2 separationR = uvOffsetR - refractionOffset;
+    float2 separationB = uvOffsetB - refractionOffset;
+    float capR = GlassDispersionCapScale(separationR);
+    float capB = GlassDispersionCapScale(separationB);
+
+    float4 grabPosR = refractedGrabPos;
+    float4 grabPosB = refractedGrabPos;
+    grabPosR.xy += (grabOffsetR - grabOffsetG) * capR * refractedGrabPos.w;
+    grabPosB.xy += (grabOffsetB - grabOffsetG) * capB * refractedGrabPos.w;
+
+    float3 sceneColor;
+    sceneColor.r = SampleSceneColor(ClampSceneUV(refractedUV + separationR * capR), grabPosR).r;
+    sceneColor.g = SampleSceneColor(refractedUV, refractedGrabPos).g;
+    sceneColor.b = SampleSceneColor(ClampSceneUV(refractedUV + separationB * capB), grabPosB).b;
+    return sceneColor;
 }
 
 inline float ComputeBaseRefractionScale(float normalizedThickness, float nearFade, float2 screenUV)

@@ -113,6 +113,16 @@ inline float3 GlassRefractDirection(float3 incident, float3 normal, float eta)
     return dot(refracted, refracted) > 1e-6 ? normalize(refracted) : incident;
 }
 
+// Wavelength-dependent index for R/G/B at the Fraunhofer C, d and F lines (656.3/587.6/486.1 nm):
+// a Cauchy fit n = A + B / lambda^2 through nd = ior and nF - nC = (nd - 1) / abbe. G returns ior exactly.
+inline float3 GlassDispersedIor(float ior, float abbe)
+{
+    const float3 invLambdaSq = float3(2.3216417, 2.8962525, 4.2320302); // 1 / lambda^2, micrometers
+    float nd = max(ior, 1.0);
+    float cauchyB = (nd - 1.0) / max(abbe, 1.0) / (invLambdaSq.z - invLambdaSq.x);
+    return nd + cauchyB * (invLambdaSq - invLambdaSq.y);
+}
+
 // Converts a path measured along the view ray into the path along the refracted ray (slab: cos_i / cos_t).
 inline float GlassViewToRefractedPath(float cosIncident, float ior)
 {
