@@ -9,3 +9,14 @@ Adjust Blur Function.
 
 ### v 1.0.3
 Add rain effect to glass shader
+
+### v 1.1.0
+- Physical refraction (Snell's law) with Thin Pane / Solid models
+- Dispersion from the Abbe number (replaces the fixed-pixel chromatic offset)
+- Two-surface Fresnel energy; fixes reflections being applied twice (reflections are now brighter; lower Environment Reflection Strength toward 1 if needed)
+- Box-projected reflection probes
+- Internal Scattering property
+- Baked mesh thickness (UV5) in the edge baker; bounds fallback is ignored when it does not fit the mesh
+- New `refiaa/glass (Shared Grab)` shader: one screen copy per frame
+- Performance: fewer texture fetches and cheaper blur
+- Fixes: edge baker re-baking baked meshes and dropping blend shapes; unbaked meshes reading garbage edge/thickness data

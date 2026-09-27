@@ -12,8 +12,30 @@ The shader has been verified to work in **Unity 2022.3.22f1, 2022.3.22f2, 2022.3
 
 ## Key Features
 
-- Instead of simple texture compositing, it calculates the **distance (thickness)** light travels through the glass to reproduce exponential color absorption based on depth.
-- It calculates the refractive index differences based on light wavelength to express prism-like edge details (Chromatic Aberration).
+- **Thickness-based absorption:** calculates the **distance (thickness)** light travels through the glass and applies exponential (Beer-Lambert) color absorption. Thickness comes from baked mesh data when available (see *Mesh Baking*), otherwise from a view-angle estimate.
+- **Physical refraction:** traces the view ray through the glass with Snell's law. Choose *Thin Pane* (sheet glass: only the physical lateral shift) or *Solid* (lens-like bodies) in **Refraction Model**.
+- **Dispersion:** red and blue refract with their own index derived from the **Abbe Number**, so color fringes appear only where light is actually bent.
+- **Two-surface Fresnel:** front and back surface reflections with absorption between them; box-projected reflection probes are supported.
+- **Internal Scattering (optional):** ambient light scattered inside long glass paths, giving cut edges their green glow.
+- Rain (droplets / ripples) and roughness-driven refraction blur.
+
+## Shaders
+
+| Shader | Screen copies (GrabPass) | Use when |
+|---|---|---|
+| `refiaa/glass` | one per visible glass object | a few glass objects, or exact glass-behind-glass refraction matters |
+| `refiaa/glass (Shared Grab)` | **one per frame** for all objects using it | many glass objects (recommended for scenes) |
+
+Both use the same properties; switching the shader on a material keeps its values.
+With *Shared Grab*, glass seen through other glass is still visible, but without the front glass's refraction offset. It requires an **HDR camera** (the default on PC and in VRChat).
+
+## Mesh Baking
+
+Select the glass objects and run **Tools > Glass Shader > Bake Selected Mesh Edge Data**. Baked copies are saved to `MeshEdgeBaked/` and assigned to the renderers.
+
+- Bakes mesh-edge data (for *Mesh Edge Highlight* / edge distortion) and the **local glass thickness** (pane faces get their thickness, cut edges their width).
+- Uses UV channels 3, 4 and 5 (existing data in them is replaced). Blend shapes are kept.
+- Unbaked meshes still work and use **Fallback Thickness**.
 
 ## Gallery
 
@@ -47,7 +69,7 @@ This shader has been tested and verified in the following environments:
   * 2022.3.6f1 (Verified)
 
 * **Platform:**
-  * VRChat
+  * VRChat (PC). GrabPass is not supported on Quest/Android.
  
 ---
 
