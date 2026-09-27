@@ -65,7 +65,8 @@ inline float3 SampleChromaticSceneColor(float2 refractedUV, float4 refractedGrab
 {
     float2 pixelSize = GetScreenTexelSize();
     float2 chromaDir = normalize(refractionOffset + float2(1e-6, 0.0));
-    float chromaFade = saturate(chromaScale / max(_RefractionStrength, 1e-5));
+    // Dispersion scales with how much the light is actually bent; unbent light shows no fringes.
+    float chromaFade = saturate(min(chromaScale, length(refractionOffset)) / max(_RefractionStrength, 1e-5));
     float2 chromaOffset = chromaDir * (_ChromaticAberration * pixelSize * chromaFade);
 
     float2 uvR = ClampSceneUV(refractedUV + chromaOffset);
@@ -201,6 +202,57 @@ inline float GlassComputeValidatedDistortionEdgeMask(float3 barycentric, float3 
     float edgeDataValid = GlassComputeEdgeDataValidity(barycentric);
     float rawEdge = GlassComputeMeshEdgeRaw(barycentric, edgeKeep) * edgeDataValid;
     return saturate(sqrt(saturate(rawEdge)));
+}
+
+// Traces the view ray through the glass: Snell refraction on entry, `pathLength` inside, refraction again on exit.
+// The exit surface is parallel to the geometric surface (thin pane) or a sphere with the same chord (solid).
+// The exit point is projected exactly (physical lateral shift); the exit deviation is carried a virtual distance
+// chosen so that refractionScale stays a screen UV offset per unit of deviation.
+inline float2 GlassComputeRefraction(
+    float3 worldPos,
+    float3 viewDirWS,
+    float3 normalWS,
+    float3 geomNormalWS,
+    float pathLength,
+    float refractionScale,
+    float frontDepth,
+    float2 screenUV,
+    float4 grabPos,
+    out float2 refractedUV,
+    out float4 refractedGrabPos)
+{
+    float ior = max(_IOR, 1.0);
+    float path = max(pathLength, 0.0);
+    float3 incident = -viewDirWS;
+    float3 inside = GlassRefractDirection(incident, normalWS, 1.0 / ior);
+    float3 exitPoint = worldPos + inside * path;
+
+    float3 exitNormal = geomNormalWS;
+    if (_RefractionModel > 0.5)
+    {
+        float cosInside = max(abs(dot(inside, geomNormalWS)), 1e-3);
+        float radius = max(path / (2.0 * cosInside), 1e-4);
+        float3 center = worldPos - geomNormalWS * radius;
+        exitNormal = normalize(exitPoint - center);
+    }
+
+    float3 outDir = GlassRefractDirection(inside, exitNormal, ior);
+    float virtualDistance = max(refractionScale, 0.0) * 2.0 * frontDepth / max(abs(UNITY_MATRIX_P._m11), 1e-4);
+    float4 sampleCS = mul(UNITY_MATRIX_VP, float4(exitPoint + (outDir - incident) * virtualDistance, 1.0));
+
+    float2 uvOffset = 0.0.xx;
+    float2 grabOffset = 0.0.xx;
+    if (sampleCS.w > 1e-4)
+    {
+        uvOffset = GlassGetScreenUV(ComputeScreenPos(sampleCS)) - screenUV;
+        float4 sampleGrab = ComputeGrabScreenPos(sampleCS);
+        grabOffset = sampleGrab.xy / sampleGrab.w - grabPos.xy / max(grabPos.w, 1e-5);
+    }
+
+    refractedUV = ClampSceneUV(screenUV + uvOffset);
+    refractedGrabPos = grabPos;
+    refractedGrabPos.xy += grabOffset * grabPos.w;
+    return uvOffset;
 }
 
 inline float ComputeBaseRefractionScale(float normalizedThickness, float nearFade, float2 screenUV)

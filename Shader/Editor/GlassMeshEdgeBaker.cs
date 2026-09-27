@@ -9,6 +9,7 @@ public static class GlassMeshEdgeBaker
     private const string MenuPath = "Tools/Glass Shader/Bake Selected Mesh Edge Data";
     private const string OutputFolder = "Assets/GlassShader_Unity/MeshEdgeBaked";
     private const float HardEdgeAngleDegrees = 1.0f;
+    private const int ThicknessUvChannel = 5;
 
     [MenuItem(MenuPath)]
     private static void BakeSelected()
@@ -25,6 +26,7 @@ public static class GlassMeshEdgeBaker
         var bakedBySource = new Dictionary<Mesh, Mesh>();
         int rendererCount = 0;
         int bakedMeshCount = 0;
+        int upgradedMeshCount = 0;
 
         foreach (GameObject root in selected)
         {
@@ -40,7 +42,7 @@ public static class GlassMeshEdgeBaker
                     continue;
                 }
 
-                Mesh baked = GetOrCreateBakedMesh(meshFilter.sharedMesh, bakedBySource, ref bakedMeshCount);
+                Mesh baked = GetOrCreateBakedMesh(meshFilter.sharedMesh, bakedBySource, ref bakedMeshCount, ref upgradedMeshCount);
                 if (baked == null)
                 {
                     continue;
@@ -59,7 +61,7 @@ public static class GlassMeshEdgeBaker
                     continue;
                 }
 
-                Mesh baked = GetOrCreateBakedMesh(skinned.sharedMesh, bakedBySource, ref bakedMeshCount);
+                Mesh baked = GetOrCreateBakedMesh(skinned.sharedMesh, bakedBySource, ref bakedMeshCount, ref upgradedMeshCount);
                 if (baked == null)
                 {
                     continue;
@@ -77,7 +79,7 @@ public static class GlassMeshEdgeBaker
 
         EditorUtility.DisplayDialog(
             "Glass Edge Baker",
-            $"Baked meshes: {bakedMeshCount}\nRenderers updated: {rendererCount}\nOutput: {OutputFolder}",
+            $"Baked meshes: {bakedMeshCount}\nThickness added to existing baked meshes: {upgradedMeshCount}\nRenderers updated: {rendererCount}\nOutput: {OutputFolder}",
             "OK");
     }
 
@@ -87,7 +89,7 @@ public static class GlassMeshEdgeBaker
         return Selection.gameObjects != null && Selection.gameObjects.Length > 0;
     }
 
-    private static Mesh GetOrCreateBakedMesh(Mesh source, Dictionary<Mesh, Mesh> bakedBySource, ref int bakedMeshCount)
+    private static Mesh GetOrCreateBakedMesh(Mesh source, Dictionary<Mesh, Mesh> bakedBySource, ref int bakedMeshCount, ref int upgradedMeshCount)
     {
         if (source == null)
         {
@@ -97,6 +99,16 @@ public static class GlassMeshEdgeBaker
         // Unity renames the mesh to its asset file name, which may carry a " 1" style suffix.
         if (source.name.Contains("_GlassEdge"))
         {
+            // Meshes baked before thickness existed only need the thickness channel added in place.
+            if (!bakedBySource.ContainsKey(source) &&
+                !HasThicknessData(source) &&
+                AssetDatabase.GetAssetPath(source).EndsWith(".asset"))
+            {
+                BakeThickness(source);
+                EditorUtility.SetDirty(source);
+                upgradedMeshCount++;
+            }
+
             bakedBySource[source] = source;
             return source;
         }
@@ -411,7 +423,299 @@ public static class GlassMeshEdgeBaker
         }
 
         baked.RecalculateBounds();
+        BakeThickness(baked);
         return baked;
+    }
+
+    private static bool HasThicknessData(Mesh mesh)
+    {
+        var uv = new List<Vector4>();
+        mesh.GetUVs(ThicknessUvChannel, uv);
+        return uv.Count == mesh.vertexCount && (uv.Count == 0 || uv[0].w < -0.5f);
+    }
+
+    // Stores per vertex (UV5.x, object space; UV5.w = -1 marks baked data) how far light travels through the body when entering along
+    // the face normal: a pane gets its thickness on the faces and its width on the cut edges.
+    // Faces whose inward ray leaves the mesh open (single-sided surfaces) get 0, and the shader falls back.
+    private static void BakeThickness(Mesh mesh)
+    {
+        const float rayEpsilon = 1e-5f;
+
+        Vector3[] vertices = mesh.vertices;
+        int count = vertices.Length;
+        float scale = mesh.bounds.size.magnitude;
+        if (count == 0 || scale <= 0f)
+        {
+            return;
+        }
+
+        // Work in unit-size space so epsilons hold for any import scale (e.g. Blender FBX at 0.01).
+        var local = new Vector3[count];
+        for (int i = 0; i < count; i++)
+        {
+            local[i] = vertices[i] / scale;
+        }
+
+        var sum = new float[count];
+        var hits = new int[count];
+        for (int submesh = 0; submesh < mesh.subMeshCount; submesh++)
+        {
+            if (mesh.GetTopology(submesh) != MeshTopology.Triangles)
+            {
+                continue;
+            }
+
+            int[] indices = mesh.GetIndices(submesh);
+            var bvh = new TriangleBvh(local, indices);
+            for (int i = 0; i + 2 < indices.Length; i += 3)
+            {
+                Vector3 a = local[indices[i]];
+                Vector3 b = local[indices[i + 1]];
+                Vector3 c = local[indices[i + 2]];
+                Vector3 normal = Vector3.Cross(b - a, c - a);
+                if (normal.sqrMagnitude <= 1e-20f)
+                {
+                    continue;
+                }
+
+                // Not Normalize(): it returns zero below 1e-5 length, which thin cut-edge triangles reach here.
+                normal /= Mathf.Sqrt(normal.sqrMagnitude);
+                Vector3 origin = (a + b + c) / 3f - normal * rayEpsilon;
+                float t = bvh.Raycast(origin, -normal, i / 3);
+                if (t < 0f)
+                {
+                    continue;
+                }
+
+                float thickness = (t + rayEpsilon) * scale;
+                for (int k = 0; k < 3; k++)
+                {
+                    sum[indices[i + k]] += thickness;
+                    hits[indices[i + k]]++;
+                }
+            }
+        }
+
+        // Baked meshes are unwelded; average corners that share position and normal so smooth surfaces stay smooth.
+        Vector3[] normals = mesh.normals;
+        bool hasNormals = normals != null && normals.Length == count;
+        var groups = new Dictionary<(Vector3, Vector3), Vector2>();
+        for (int i = 0; i < count; i++)
+        {
+            var key = (vertices[i], hasNormals ? normals[i] : Vector3.zero);
+            groups.TryGetValue(key, out Vector2 acc);
+            groups[key] = acc + new Vector2(sum[i], hits[i]);
+        }
+
+        var uv = new List<Vector4>(count);
+        for (int i = 0; i < count; i++)
+        {
+            Vector2 acc = groups[(vertices[i], hasNormals ? normals[i] : Vector3.zero)];
+            uv.Add(new Vector4(acc.y > 0f ? acc.x / acc.y : 0f, 0f, 0f, -1f));
+        }
+
+        mesh.SetUVs(ThicknessUvChannel, uv);
+    }
+
+    // Median-split BVH over one submesh for closest-hit raycasts (two-sided).
+    private sealed class TriangleBvh
+    {
+        private const int LeafSize = 4;
+
+        private struct Node
+        {
+            public Vector3 Min;
+            public Vector3 Max;
+            public int Left;
+            public int Right;
+            public int Start;
+            public int Count;
+        }
+
+        private readonly Vector3[] _v0;
+        private readonly Vector3[] _e1;
+        private readonly Vector3[] _e2;
+        private readonly int[] _tris;
+        private readonly List<Node> _nodes = new List<Node>();
+        private readonly Stack<int> _stack = new Stack<int>();
+
+        public TriangleBvh(Vector3[] vertices, int[] indices)
+        {
+            int triCount = indices.Length / 3;
+            _v0 = new Vector3[triCount];
+            _e1 = new Vector3[triCount];
+            _e2 = new Vector3[triCount];
+            _tris = new int[triCount];
+            var centroids = new Vector3[triCount];
+            for (int t = 0; t < triCount; t++)
+            {
+                Vector3 a = vertices[indices[t * 3]];
+                Vector3 b = vertices[indices[t * 3 + 1]];
+                Vector3 c = vertices[indices[t * 3 + 2]];
+                _v0[t] = a;
+                _e1[t] = b - a;
+                _e2[t] = c - a;
+                centroids[t] = (a + b + c) / 3f;
+                _tris[t] = t;
+            }
+
+            if (triCount > 0)
+            {
+                Build(0, triCount, centroids);
+            }
+        }
+
+        private int Build(int start, int count, Vector3[] centroids)
+        {
+            var node = new Node
+            {
+                Min = Vector3.positiveInfinity,
+                Max = Vector3.negativeInfinity,
+                Left = -1,
+                Right = -1,
+                Start = start,
+                Count = count
+            };
+
+            Vector3 cMin = Vector3.positiveInfinity;
+            Vector3 cMax = Vector3.negativeInfinity;
+            for (int i = start; i < start + count; i++)
+            {
+                int t = _tris[i];
+                Vector3 a = _v0[t];
+                Vector3 b = a + _e1[t];
+                Vector3 c = a + _e2[t];
+                node.Min = Vector3.Min(node.Min, Vector3.Min(a, Vector3.Min(b, c)));
+                node.Max = Vector3.Max(node.Max, Vector3.Max(a, Vector3.Max(b, c)));
+                cMin = Vector3.Min(cMin, centroids[t]);
+                cMax = Vector3.Max(cMax, centroids[t]);
+            }
+
+            int nodeIndex = _nodes.Count;
+            _nodes.Add(node);
+
+            Vector3 extent = cMax - cMin;
+            int axis = extent.x >= extent.y && extent.x >= extent.z ? 0 : (extent.y >= extent.z ? 1 : 2);
+            if (count > LeafSize && extent[axis] > 0f)
+            {
+                System.Array.Sort(_tris, start, count,
+                    Comparer<int>.Create((x, y) => centroids[x][axis].CompareTo(centroids[y][axis])));
+                int half = count / 2;
+                node.Left = Build(start, half, centroids);
+                node.Right = Build(start + half, count - half, centroids);
+                node.Count = 0;
+                _nodes[nodeIndex] = node;
+            }
+
+            return nodeIndex;
+        }
+
+        // Returns the distance to the closest triangle hit (excluding skipTri), or -1.
+        public float Raycast(Vector3 origin, Vector3 dir, int skipTri)
+        {
+            if (_nodes.Count == 0)
+            {
+                return -1f;
+            }
+
+            var invDir = new Vector3(SafeRcp(dir.x), SafeRcp(dir.y), SafeRcp(dir.z));
+            float best = float.MaxValue;
+            _stack.Clear();
+            _stack.Push(0);
+            while (_stack.Count > 0)
+            {
+                Node node = _nodes[_stack.Pop()];
+                if (!HitBox(node, origin, invDir, best))
+                {
+                    continue;
+                }
+
+                if (node.Left < 0)
+                {
+                    for (int i = node.Start; i < node.Start + node.Count; i++)
+                    {
+                        int t = _tris[i];
+                        if (t == skipTri)
+                        {
+                            continue;
+                        }
+
+                        float hit = IntersectTriangle(origin, dir, t);
+                        if (hit > 1e-7f && hit < best)
+                        {
+                            best = hit;
+                        }
+                    }
+                }
+                else
+                {
+                    _stack.Push(node.Left);
+                    _stack.Push(node.Right);
+                }
+            }
+
+            return best < float.MaxValue ? best : -1f;
+        }
+
+        private float IntersectTriangle(Vector3 origin, Vector3 dir, int t)
+        {
+            Vector3 e1 = _e1[t];
+            Vector3 e2 = _e2[t];
+            Vector3 p = Vector3.Cross(dir, e2);
+            float det = Vector3.Dot(e1, p);
+            if (Mathf.Abs(det) < 1e-12f)
+            {
+                return -1f;
+            }
+
+            float invDet = 1f / det;
+            Vector3 s = origin - _v0[t];
+            float u = Vector3.Dot(s, p) * invDet;
+            if (u < 0f || u > 1f)
+            {
+                return -1f;
+            }
+
+            Vector3 q = Vector3.Cross(s, e1);
+            float v = Vector3.Dot(dir, q) * invDet;
+            if (v < 0f || u + v > 1f)
+            {
+                return -1f;
+            }
+
+            return Vector3.Dot(e2, q) * invDet;
+        }
+
+        private static bool HitBox(Node node, Vector3 origin, Vector3 invDir, float maxT)
+        {
+            float t0 = 0f;
+            float t1 = maxT;
+            for (int axis = 0; axis < 3; axis++)
+            {
+                float near = (node.Min[axis] - origin[axis]) * invDir[axis];
+                float far = (node.Max[axis] - origin[axis]) * invDir[axis];
+                if (near > far)
+                {
+                    float tmp = near;
+                    near = far;
+                    far = tmp;
+                }
+
+                t0 = Mathf.Max(t0, near);
+                t1 = Mathf.Min(t1, far);
+                if (t0 > t1)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static float SafeRcp(float value)
+        {
+            return Mathf.Abs(value) > 1e-12f ? 1f / value : (value >= 0f ? 1e12f : -1e12f);
+        }
     }
 
     private static void CopyBlendShapes(Mesh source, Mesh baked, List<int> dstSourceIndices)

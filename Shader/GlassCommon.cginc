@@ -87,6 +87,29 @@ inline float3 GlassSchlickFresnelColor(float cosTheta, float3 f0)
     return f0 + (1.0.xxx - f0) * oneMinusCos5;
 }
 
+// Cosine of the transmitted angle inside a medium of the given index (Snell's law).
+inline float GlassRefractedCos(float cosIncident, float ior)
+{
+    float eta = 1.0 / max(ior, 1.0);
+    float sin2T = eta * eta * saturate(1.0 - cosIncident * cosIncident);
+    return sqrt(saturate(1.0 - sin2T));
+}
+
+// Refracts a ray through an interface; the normal may face either side.
+// Returns the unrefracted direction on total internal reflection.
+inline float3 GlassRefractDirection(float3 incident, float3 normal, float eta)
+{
+    float3 n = dot(incident, normal) > 0.0 ? -normal : normal;
+    float3 refracted = refract(incident, n, eta);
+    return dot(refracted, refracted) > 1e-6 ? normalize(refracted) : incident;
+}
+
+// Converts a path measured along the view ray into the path along the refracted ray (slab: cos_i / cos_t).
+inline float GlassViewToRefractedPath(float cosIncident, float ior)
+{
+    return (cosIncident + 1e-4) / (GlassRefractedCos(cosIncident, ior) + 1e-4);
+}
+
 inline float GlassComputeApproxThickness(float fallbackThickness, float3 normalWS, float3 viewDirWS, float minDenominator)
 {
     float ndotv = abs(dot(normalize(normalWS), normalize(viewDirWS)));

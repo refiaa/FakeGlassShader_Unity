@@ -28,6 +28,7 @@ Shader "refiaa/glass"
 
         [Header(Refraction)]
         _RefractionStrength("Refraction Strength", Range(0.000, 0.200)) = 0.010
+        [Enum(Thin Pane,0, Solid,1)] _RefractionModel("Refraction Model", Float) = 0
         _DistortionFace("Distortion (Face)", Range(0.000, 1.000)) = 0.000
         _DistortionEdge("Distortion (Edge)", Range(0.000, 1.000)) = 0.000
         _BackfaceVisibility("Backface Visibility", Range(0.000, 1.000)) = 0.350
@@ -68,7 +69,7 @@ Shader "refiaa/glass"
         [NoScaleOffset] _GlassRainNoiseTex("Rain Noise Texture", 2D) = "gray" {}
 
         [Header(Reflection)]
-        _IOR("Index Of Refraction", Range(1.000, 2.000)) = 1.000
+        _IOR("Index Of Refraction", Range(1.000, 2.000)) = 1.500
         _ReflectionTint("Reflection Tint", Color) = (1, 1, 1, 1)
         _EnvReflectionStrength("Environment Reflection Strength", Range(0.000, 4.000)) = 1.500
         _SpecularStrength("Direct Specular Strength", Range(0.000, 4.000)) = 0.250
@@ -155,6 +156,7 @@ Shader "refiaa/glass"
                 float2 uv : TEXCOORD0;
                 float4 edgeData0 : TEXCOORD3;
                 float2 edgeData1 : TEXCOORD4;
+                float4 thicknessData : TEXCOORD5;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -170,6 +172,7 @@ Shader "refiaa/glass"
                 float3 bitangentWS : TEXCOORD6;
                 float3 barycentric : TEXCOORD7;
                 float3 edgeKeep : TEXCOORD8;
+                float bakedThickness : TEXCOORD9;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -211,6 +214,7 @@ Shader "refiaa/glass"
             float _NearFadeDistance;
             float _DepthEdgeFixPixels;
             float _RefractionStrength;
+            float _RefractionModel;
             float _DistortionFace;
             float _DistortionEdge;
             float _UseChromaticAberration;
@@ -270,6 +274,10 @@ Shader "refiaa/glass"
                 output.bitangentWS = cross(output.normalWS, output.tangentWS) * tangentSign;
                 output.barycentric = input.edgeData0.xyz;
                 output.edgeKeep = float3(input.edgeData0.w, input.edgeData1.x, input.edgeData1.y);
+                // Baked inward thickness (object space) scaled to world units along the normal. The baker marks
+                // w = -1; a mesh without UV5 does not read zeros (Unity substitutes other data), so trust the marker only.
+                float hasBakedThickness = step(input.thicknessData.w, -0.5);
+                output.bakedThickness = hasBakedThickness * max(input.thicknessData.x, 0.0) * length(mul((float3x3)unity_ObjectToWorld, input.normal));
 
                 return output;
             }
@@ -303,23 +311,30 @@ Shader "refiaa/glass"
                 float2 screenUV = ClampSceneUV(GlassGetScreenUV(input.screenPos));
                 float frontDepth = max(-mul(UNITY_MATRIX_V, float4(input.worldPos, 1.0)).z, 0.0);
 
-                float approxThickness = _FallbackThickness;
+                // Baked geometry thickness when available: pane faces get their thickness, cut edges their width.
+                float hasBakedThickness = step(1e-6, input.bakedThickness);
+                float baseThickness = lerp(_FallbackThickness, input.bakedThickness, hasBakedThickness);
+                float approxThickness = baseThickness;
                 if (_FallbackUseAngle > 0.5)
                 {
-                    approxThickness = GlassComputeApproxThickness(_FallbackThickness, normalWS, viewDirWS, _MinViewDot);
+                    approxThickness = GlassComputeApproxThickness(baseThickness, normalWS, viewDirWS, _MinViewDot);
                 }
 
-                if (_UseBoundsThicknessFallback > 0.5)
+                if (_UseBoundsThicknessFallback > 0.5 && hasBakedThickness < 0.5)
                 {
-                    float boundsThickness = ComputeBoundsFallbackThickness(input.worldPos, viewDirWS, _FallbackBoundsMin.xyz, _FallbackBoundsMax.xyz);
-                    float blendedBoundsThickness = lerp(approxThickness, boundsThickness, saturate(_BoundsFallbackBlend));
+                    float boundsConfidence;
+                    float boundsThickness = ComputeBoundsFallbackThickness(input.worldPos, -viewDirWS, _FallbackBoundsMin.xyz, _FallbackBoundsMax.xyz, boundsConfidence);
+                    float blendedBoundsThickness = lerp(approxThickness, boundsThickness, saturate(_BoundsFallbackBlend) * boundsConfidence);
                     approxThickness = max(blendedBoundsThickness, approxThickness * 0.05);
                 }
                 approxThickness = approxThickness * _ThicknessScale + _ThicknessBias;
 
+                // Back-front eye depth measures along the camera axis; convert it to the view-ray length.
+                float viewRayScale = distance(input.worldPos, _WorldSpaceCameraPos) / max(frontDepth, 1e-4);
+
                 float exactValid;
                 float backDepth = SampleBackDepthRobust(screenUV, frontDepth, exactValid);
-                float exactThickness = (backDepth - frontDepth) * _ThicknessScale + _ThicknessBias;
+                float exactThickness = (backDepth - frontDepth) * viewRayScale * _ThicknessScale + _ThicknessBias;
                 float useExactThickness = step(0.5, _UseBackDepthTexture) * exactValid;
                 float thickness = lerp(approxThickness, exactThickness, useExactThickness);
                 thickness = clamp(thickness, 0.0, _MaxThickness);
@@ -354,17 +369,29 @@ Shader "refiaa/glass"
                 float normalizedThickness = saturate(GlassNormalizeThickness(absorptionThickness, maxThicknessSafe));
                 GlassApplyRain(input, normalWS, perceptualRoughness, 0.0);
                 roughnessLinear = max(perceptualRoughness * perceptualRoughness, 0.003);
-                float3 normalVS = mul((float3x3)UNITY_MATRIX_V, normalWS);
                 float meshEdgeMask = GlassComputeValidatedMeshEdgeMask(input.barycentric, input.edgeKeep);
                 float distortionEdgeMask = GlassComputeValidatedDistortionEdgeMask(input.barycentric, input.edgeKeep);
                 float baseRefractionScale = ComputeBaseRefractionScale(normalizedThickness, nearFade, screenUV);
                 float distortionGain = ComputeFaceEdgeDistortionGain(distortionEdgeMask, frontDepth);
                 float refractionScale = ComposeRefractionScale(baseRefractionScale, distortionGain);
 
-                float2 refractionOffset = normalVS.xy * refractionScale;
-                float2 refractedUV = ClampSceneUV(screenUV + refractionOffset);
-                float4 refractedGrabPos = input.grabPos;
-                refractedGrabPos.xy += refractionOffset * refractedGrabPos.w;
+                float2 refractedUV;
+                float4 refractedGrabPos;
+                // Absorption keeps the long view-ray path (deep tint at edges); the image shift uses the
+                // bounded path along the refracted ray.
+                float refractionPath = thickness * GlassViewToRefractedPath(abs(dot(normalWS, viewDirWS)), _IOR);
+                float2 refractionOffset = GlassComputeRefraction(
+                    input.worldPos,
+                    viewDirWS,
+                    normalWS,
+                    normalize(input.normalWS),
+                    refractionPath,
+                    refractionScale,
+                    frontDepth,
+                    screenUV,
+                    input.grabPos,
+                    refractedUV,
+                    refractedGrabPos);
 
                 float3 sceneColorBase;
                 if (_UseChromaticAberration > 0.5)
@@ -451,17 +478,24 @@ Shader "refiaa/glass"
 
                 float surfaceReduction = 1.0 / (roughnessLinear * roughnessLinear + 1.0);
                 float horizon = min(1.0 + dot(reflectionDirWS, normalWS), 1.0);
-                float3 reflectionAdjust = fresnelColor * surfaceReduction * horizon * horizon;
+                float3 frontReflectance = fresnelColor * surfaceReduction * horizon * horizon;
 
-                float3 reflectionColor = envReflection * _EnvReflectionStrength * reflectionAdjust + directSpecular;
+                // Two interfaces with absorption between them, internal bounces summed:
+                //   R = F + (1-F)^2 F T^2 / (1 - F^2 T^2)
+                //   T = (1-F)^2 T / (1 - F^2 T^2)
+                float3 transmittanceSq = transmittance * transmittance;
+                float3 interreflection = 1.0 / max(1.0.xxx - frontReflectance * frontReflectance * transmittanceSq, 1e-4);
+                float3 backReflectance = (1.0 - frontReflectance) * (1.0 - frontReflectance) * frontReflectance * transmittanceSq * interreflection;
+                float3 reflectionColor = envReflection * _EnvReflectionStrength * (frontReflectance + backReflectance) + directSpecular;
                 float3 reflectionAbsorption = GlassComputeTransmittance(sigma, curvedAbsorptionThickness * 2.0);
                 reflectionColor *= lerp(1.0.xxx, reflectionAbsorption, saturate(_ReflectionAbsorption));
 
-                float3 transmittedColor = sceneColor * transmittance;
-                float3 transmissionWeight = saturate((1.0.xxx - reflectionAdjust) + _TransmissionAtGrazing * reflectionAdjust);
-                transmissionWeight *= oneMinusReflectivity;
-                float3 reflectionWeight = saturate(1.0.xxx - transmissionWeight);
-                float3 composedColor = reflectionColor * reflectionWeight + transmittedColor * transmissionWeight;
+                // Same slab sum with the grazing-relaxed reflectance, so the weight stays <= 1.
+                float3 transmissionLoss = frontReflectance * (1.0 - saturate(_TransmissionAtGrazing));
+                float3 transmissionInterreflection = 1.0 / max(1.0.xxx - transmissionLoss * transmissionLoss * transmittanceSq, 1e-4);
+                float3 transmissionWeight = (1.0 - transmissionLoss) * (1.0 - transmissionLoss) * transmissionInterreflection;
+                transmissionWeight *= lerp(1.0, oneMinusReflectivity, metallic);
+                float3 composedColor = reflectionColor + sceneColor * transmittance * transmissionWeight;
                 float3 finalColor = lerp(sceneColor, composedColor, saturate(_BaseTint.a));
 
                 if (_UseMeshEdge > 0.5)
@@ -510,6 +544,7 @@ Shader "refiaa/glass"
                 float2 uv : TEXCOORD0;
                 float4 edgeData0 : TEXCOORD3;
                 float2 edgeData1 : TEXCOORD4;
+                float4 thicknessData : TEXCOORD5;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -525,6 +560,7 @@ Shader "refiaa/glass"
                 float3 bitangentWS : TEXCOORD6;
                 float3 barycentric : TEXCOORD7;
                 float3 edgeKeep : TEXCOORD8;
+                float bakedThickness : TEXCOORD9;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -549,6 +585,7 @@ Shader "refiaa/glass"
             float _MaxThickness;
             float _NearFadeDistance;
             float _RefractionStrength;
+            float _RefractionModel;
             float _DistortionFace;
             float _DistortionEdge;
             float _BackfaceVisibility;
@@ -595,6 +632,10 @@ Shader "refiaa/glass"
                 output.bitangentWS = cross(output.normalWS, output.tangentWS) * tangentSign;
                 output.barycentric = input.edgeData0.xyz;
                 output.edgeKeep = float3(input.edgeData0.w, input.edgeData1.x, input.edgeData1.y);
+                // Baked inward thickness (object space) scaled to world units along the normal. The baker marks
+                // w = -1; a mesh without UV5 does not read zeros (Unity substitutes other data), so trust the marker only.
+                float hasBakedThickness = step(input.thicknessData.w, -0.5);
+                output.bakedThickness = hasBakedThickness * max(input.thicknessData.x, 0.0) * length(mul((float3x3)unity_ObjectToWorld, input.normal));
 
                 return output;
             }
@@ -638,10 +679,13 @@ Shader "refiaa/glass"
                 float2 screenUV = ClampSceneUV(GlassGetScreenUV(input.screenPos));
                 float frontDepth = max(-mul(UNITY_MATRIX_V, float4(input.worldPos, 1.0)).z, 0.0);
 
-                float approxThickness = _FallbackThickness;
+                // Baked geometry thickness when available: pane faces get their thickness, cut edges their width.
+                float hasBakedThickness = step(1e-6, input.bakedThickness);
+                float baseThickness = lerp(_FallbackThickness, input.bakedThickness, hasBakedThickness);
+                float approxThickness = baseThickness;
                 if (_FallbackUseAngle > 0.5)
                 {
-                    approxThickness = GlassComputeApproxThickness(_FallbackThickness, normalWS, viewDirWS, _MinViewDot);
+                    approxThickness = GlassComputeApproxThickness(baseThickness, normalWS, viewDirWS, _MinViewDot);
                 }
 
                 approxThickness = approxThickness * _ThicknessScale + _ThicknessBias;
@@ -657,17 +701,27 @@ Shader "refiaa/glass"
                 float maxThicknessSafe = max(_MaxThickness, 1e-5);
                 float normalizedThickness = saturate(GlassNormalizeThickness(approxThickness, maxThicknessSafe));
                 GlassApplyRain(input, normalWS, perceptualRoughness, 1.0);
-                float3 normalVS = mul((float3x3)UNITY_MATRIX_V, normalWS);
 
                 float distortionEdgeMask = GlassComputeValidatedDistortionEdgeMask(input.barycentric, input.edgeKeep);
                 float baseRefractionScale = ComputeBaseRefractionScale(normalizedThickness, nearFade, screenUV);
                 float distortionGain = ComputeFaceEdgeDistortionGain(distortionEdgeMask, frontDepth);
                 float refractionScale = ComposeRefractionScale(baseRefractionScale, distortionGain);
 
-                float2 refractionOffset = normalVS.xy * refractionScale;
-                float2 refractedUV = ClampSceneUV(screenUV + refractionOffset);
-                float4 refractedGrabPos = input.grabPos;
-                refractedGrabPos.xy += refractionOffset * refractedGrabPos.w;
+                // Back faces point away from the viewer; flip so the same entry/exit trace applies.
+                float2 refractedUV;
+                float4 refractedGrabPos;
+                float2 refractionOffset = GlassComputeRefraction(
+                    input.worldPos,
+                    viewDirWS,
+                    -normalWS,
+                    -normalize(input.normalWS),
+                    approxThickness * GlassViewToRefractedPath(abs(dot(normalWS, viewDirWS)), _IOR),
+                    refractionScale,
+                    frontDepth,
+                    screenUV,
+                    input.grabPos,
+                    refractedUV,
+                    refractedGrabPos);
 
                 float3 sceneColorBase;
                 if (_UseChromaticAberration > 0.5)

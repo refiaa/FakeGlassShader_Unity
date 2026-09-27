@@ -37,6 +37,7 @@ public sealed class GlassShaderGUI : ShaderGUI
         public static readonly GUIContent BackDepthEdgeFixRadius = new GUIContent("Back Depth Edge Fix Radius (Pixels)");
 
         public static readonly GUIContent RefractionStrength = new GUIContent("Refraction Strength");
+        public static readonly GUIContent RefractionModel = new GUIContent("Refraction Model");
         public static readonly GUIContent DistortionFace = new GUIContent("Distortion (Face)");
         public static readonly GUIContent DistortionEdge = new GUIContent("Distortion (Edge)");
         public static readonly GUIContent BackfaceVisibility = new GUIContent("Backface Visibility");
@@ -135,6 +136,7 @@ public sealed class GlassShaderGUI : ShaderGUI
         public const string DepthEdgeFixPixels = "_DepthEdgeFixPixels";
 
         public const string RefractionStrength = "_RefractionStrength";
+        public const string RefractionModel = "_RefractionModel";
         public const string DistortionFace = "_DistortionFace";
         public const string DistortionEdge = "_DistortionEdge";
         public const string BackfaceVisibility = "_BackfaceVisibility";
@@ -255,6 +257,7 @@ public sealed class GlassShaderGUI : ShaderGUI
     private MaterialProperty _depthEdgeFixPixels;
 
     private MaterialProperty _refractionStrength;
+    private MaterialProperty _refractionModel;
     private MaterialProperty _distortionFace;
     private MaterialProperty _distortionEdge;
     private MaterialProperty _backfaceVisibility;
@@ -429,6 +432,7 @@ public sealed class GlassShaderGUI : ShaderGUI
         BindProperty(ref _depthEdgeFixPixels, Names.DepthEdgeFixPixels, properties);
 
         BindProperty(ref _refractionStrength, Names.RefractionStrength, properties);
+        BindProperty(ref _refractionModel, Names.RefractionModel, properties);
         BindProperty(ref _distortionFace, Names.DistortionFace, properties);
         BindProperty(ref _distortionEdge, Names.DistortionEdge, properties);
         BindProperty(ref _backfaceVisibility, Names.BackfaceVisibility, properties);
@@ -545,6 +549,7 @@ public sealed class GlassShaderGUI : ShaderGUI
     private void DrawRefraction(MaterialEditor materialEditor)
     {
         DrawProperty(materialEditor, _refractionStrength, Styles.RefractionStrength);
+        DrawProperty(materialEditor, _refractionModel, Styles.RefractionModel);
         DrawProperty(materialEditor, _distortionFace, Styles.DistortionFace);
         DrawProperty(materialEditor, _distortionEdge, Styles.DistortionEdge);
         DrawProperty(materialEditor, _backfaceVisibility, Styles.BackfaceVisibility);

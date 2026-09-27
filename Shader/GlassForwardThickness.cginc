@@ -74,13 +74,13 @@ inline float SampleBackDepthRobust(float2 uv, float frontDepth, out float valid)
     return bestDepth;
 }
 
-inline float ComputeBoundsFallbackThickness(float3 worldPos, float3 viewDirWS, float3 boundsMinOS, float3 boundsMaxOS)
+inline float ComputeBoundsFallbackThickness(float3 worldPos, float3 rayDirWS, float3 boundsMinOS, float3 boundsMaxOS, out float confidence)
 {
     float3 bMin = min(boundsMinOS, boundsMaxOS);
     float3 bMax = max(boundsMinOS, boundsMaxOS);
 
     float3 startOS = mul(unity_WorldToObject, float4(worldPos, 1.0)).xyz;
-    float3 dirOS = mul((float3x3)unity_WorldToObject, -normalize(viewDirWS));
+    float3 dirOS = mul((float3x3)unity_WorldToObject, normalize(rayDirWS));
 
     float3 dirSign = lerp(-1.0.xxx, 1.0.xxx, step(0.0.xxx, dirOS));
     float3 smallMask = 1.0.xxx - step(1e-5.xxx, abs(dirOS));
@@ -96,6 +96,12 @@ inline float ComputeBoundsFallbackThickness(float3 worldPos, float3 viewDirWS, f
 
     float tNear = max(max(tMin.x, tMin.y), tMin.z);
     float tFar = min(min(tMax.x, tMax.y), tMax.z);
+
+    // The box only describes this mesh when the shaded point lies on its boundary.
+    // Points deep inside or outside it (object space not matching the bounds) get no weight.
+    float span = max(tFar - tNear, 1e-5);
+    confidence = 1.0 - smoothstep(0.02, 0.1, abs(tNear) / span);
+
     return max(0.0, tFar - max(tNear, 0.0));
 }
 
