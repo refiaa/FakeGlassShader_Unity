@@ -3,6 +3,8 @@
 ## Introduction
 
 <img src="./Media/image2.png" width="100%" alt="Thickness Visualization" />
+<img src="./Media/image3.png" width="100%" alt="Thickness Visualization" />
+<img src="./Media/image4.png" width="100%" alt="Thickness Visualization" />
 
 A physically-based glass shader designed for the **Unity Built-in Render Pipeline (BRP)** and **VRChat** environments.
 
