@@ -1,6 +1,4 @@
 # Realistic Volumetric Glass Shader (Unity BRP)
-### Working in Progress
-
 
 ## Introduction
 
