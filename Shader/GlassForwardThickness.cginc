@@ -1,9 +1,11 @@
 #ifndef GLASS_FORWARD_THICKNESS_INCLUDED
 #define GLASS_FORWARD_THICKNESS_INCLUDED
 
+// Depth targets carry no mips, so LOD 0 equals tex2D and stays legal inside dynamic branches.
 inline float SampleStereoBackDepth(float2 uv)
 {
-    return GlassIsStereoEyeRight() ? tex2D(_UdonGlassBackDepthR, uv).r : tex2D(_UdonGlassBackDepthL, uv).r;
+    float4 uvLod = float4(uv, 0.0, 0.0);
+    return GlassIsStereoEyeRight() ? tex2Dlod(_UdonGlassBackDepthR, uvLod).r : tex2Dlod(_UdonGlassBackDepthL, uvLod).r;
 }
 
 inline float SampleBackDepthRaw(float2 uv)
@@ -13,7 +15,7 @@ inline float SampleBackDepthRaw(float2 uv)
         return SampleStereoBackDepth(uv);
     }
 
-    return tex2D(_BackDepthTex, uv).r;
+    return tex2Dlod(_BackDepthTex, float4(uv, 0.0, 0.0)).r;
 }
 
 inline float SampleBackDepth(float2 uv)

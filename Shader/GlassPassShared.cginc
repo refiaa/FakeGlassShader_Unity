@@ -21,7 +21,8 @@ inline float3 SampleGrabColor(float4 grabPos)
 {
     float invW = 1.0 / max(grabPos.w, 1e-5);
     float2 uv = ClampSceneUV(grabPos.xy * invW);
-    return tex2D(_GrabTexture, uv).rgb;
+    // GrabPass targets carry no mips: LOD 0 equals tex2D without derivative work (also valid inside loops).
+    return tex2Dlod(_GrabTexture, float4(uv, 0.0, 0.0)).rgb;
 }
 
 inline float3 SampleSceneColor(float2 uv, float4 grabPos)
@@ -39,7 +40,7 @@ inline float3 SampleSceneColor(float2 uv, float4 grabPos)
     {
         if (grabPos.w <= 1e-5)
         {
-            return tex2D(_GrabTexture, ClampSceneUV(uv)).rgb;
+            return tex2Dlod(_GrabTexture, float4(ClampSceneUV(uv), 0.0, 0.0)).rgb;
         }
         return SampleGrabColor(grabPos);
     }

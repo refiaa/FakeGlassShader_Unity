@@ -180,6 +180,7 @@ Shader "refiaa/glass"
             sampler2D _RoughnessMap;
             sampler2D _MetallicMap;
             sampler2D _BackDepthTex;
+            float4 _BackDepthTex_TexelSize;
             sampler2D _SceneColorTex;
             sampler2D _GrabTexture;
             sampler2D _UdonGlassBackDepthL;
@@ -334,8 +335,16 @@ Shader "refiaa/glass"
                 // Back-front eye depth measures along the camera axis; convert it to the view-ray length.
                 float viewRayScale = distance(input.worldPos, _WorldSpaceCameraPos) / max(frontDepth, 1e-4);
 
-                float exactValid;
-                float backDepth = SampleBackDepthRobust(screenUV, frontDepth, exactValid);
+                // An unassigned slot holds Unity's 4x4 default (black; linear depth 0 = invalid), and no screen-space
+                // depth target is that small: skip the 5 fetches whenever they could only produce "invalid".
+                float exactValid = 0.0;
+                float backDepth = frontDepth;
+                bool backDepthUnassigned = _UseUdonStereoTextures < 0.5 && _BackDepthTex_TexelSize.z <= 4.0 && _BackDepthIsLinear > 0.5;
+                [branch]
+                if (_UseBackDepthTexture > 0.5 && !backDepthUnassigned)
+                {
+                    backDepth = SampleBackDepthRobust(screenUV, frontDepth, exactValid);
+                }
                 float exactThickness = (backDepth - frontDepth) * viewRayScale * _ThicknessScale + _ThicknessBias;
                 float useExactThickness = step(0.5, _UseBackDepthTexture) * exactValid;
                 float thickness = lerp(approxThickness, exactThickness, useExactThickness);
@@ -371,8 +380,13 @@ Shader "refiaa/glass"
                 float normalizedThickness = saturate(GlassNormalizeThickness(absorptionThickness, maxThicknessSafe));
                 GlassApplyRain(input, normalWS, perceptualRoughness, 0.0);
                 roughnessLinear = max(perceptualRoughness * perceptualRoughness, 0.003);
-                float meshEdgeMask = GlassComputeValidatedMeshEdgeMask(input.barycentric, input.edgeKeep);
-                float distortionEdgeMask = GlassComputeValidatedDistortionEdgeMask(input.barycentric, input.edgeKeep);
+                // lerp(face, edge, mask) ignores the mask when both gains match; the condition is uniform.
+                float distortionEdgeMask = 0.0;
+                [branch]
+                if (_DistortionEdge != _DistortionFace)
+                {
+                    distortionEdgeMask = GlassComputeValidatedDistortionEdgeMask(input.barycentric, input.edgeKeep);
+                }
                 float baseRefractionScale = ComputeBaseRefractionScale(normalizedThickness, nearFade, screenUV);
                 float distortionGain = ComputeFaceEdgeDistortionGain(distortionEdgeMask, frontDepth);
                 float refractionScale = ComposeRefractionScale(baseRefractionScale, distortionGain);
@@ -452,7 +466,8 @@ Shader "refiaa/glass"
                 }
 
                 float eta = max(_IOR, 1.0001);
-                float f0Dielectric = pow((eta - 1.0) / (eta + 1.0), 2.0);
+                float f0Ratio = (eta - 1.0) / (eta + 1.0);
+                float f0Dielectric = f0Ratio * f0Ratio;
                 float3 dielectricSpecular = saturate(_ReflectionTint.rgb) * f0Dielectric;
                 float3 specularColor = lerp(dielectricSpecular, saturate(_ReflectionTint.rgb), metallic);
                 float oneMinusReflectivity = 1.0 - max(specularColor.r, max(specularColor.g, specularColor.b));
@@ -460,7 +475,7 @@ Shader "refiaa/glass"
 
                 float nDotV = saturate(dot(normalWS, viewDirWS));
                 float grazingTerm = saturate((1.0 - perceptualRoughness) + (1.0 - oneMinusReflectivity));
-                float3 fresnelColor = lerp(specularColor, grazingTerm.xxx, pow(1.0 - nDotV, 5.0));
+                float3 fresnelColor = lerp(specularColor, grazingTerm.xxx, GlassOneMinusCosPow5(nDotV));
                 fresnelColor = saturate(fresnelColor * _FresnelBoost);
                 float fresnel = saturate(GlassLuminance(fresnelColor));
 
@@ -500,8 +515,10 @@ Shader "refiaa/glass"
                 float3 composedColor = reflectionColor + sceneColor * transmittance * transmissionWeight;
                 float3 finalColor = lerp(sceneColor, composedColor, saturate(_BaseTint.a));
 
+                [branch]
                 if (_UseMeshEdge > 0.5)
                 {
+                    float meshEdgeMask = GlassComputeValidatedMeshEdgeMask(input.barycentric, input.edgeKeep);
                     float edgeWeight = saturate(meshEdgeMask * _MeshEdgeColor.a * _MeshEdgeIntensity);
                     finalColor = lerp(finalColor, _MeshEdgeColor.rgb, edgeWeight);
                 }
@@ -641,13 +658,27 @@ Shader "refiaa/glass"
                 float hasBakedThickness = step(input.thicknessData.w, -0.5);
                 output.bakedThickness = hasBakedThickness * max(input.thicknessData.x, 0.0) * length(mul((float3x3)unity_ObjectToWorld, input.normal));
 
+                // A zero-strength overlay blends alpha 0 (SrcAlpha/OneMinusSrcAlpha) and leaves the target untouched:
+                // move the triangle outside the clip volume so it is never rasterized.
+                if (saturate(_BackfaceVisibility) * saturate(_BaseTint.a) <= 1e-4)
+                {
+                    output.positionCS = float4(2.0, 2.0, 2.0, 1.0);
+                }
+
                 return output;
             }
 
             float SamplePerceptualRoughness(float2 baseUV)
             {
                 float2 roughnessUV = TRANSFORM_TEX(baseUV, _RoughnessMap);
-                float roughnessMap = tex2D(_RoughnessMap, roughnessUV).r;
+                float2 roughnessDdx = ddx(roughnessUV);
+                float2 roughnessDdy = ddy(roughnessUV);
+                float roughnessMap = 0.0;
+                [branch]
+                if (_RoughnessMapStrength > 0.0)
+                {
+                    roughnessMap = tex2Dgrad(_RoughnessMap, roughnessUV, roughnessDdx, roughnessDdy).r;
+                }
                 return GlassComputePerceptualRoughness(_Smoothness, roughnessMap, _RoughnessMapStrength);
             }
 
@@ -706,7 +737,12 @@ Shader "refiaa/glass"
                 float normalizedThickness = saturate(GlassNormalizeThickness(approxThickness, maxThicknessSafe));
                 GlassApplyRain(input, normalWS, perceptualRoughness, 1.0);
 
-                float distortionEdgeMask = GlassComputeValidatedDistortionEdgeMask(input.barycentric, input.edgeKeep);
+                float distortionEdgeMask = 0.0;
+                [branch]
+                if (_DistortionEdge != _DistortionFace)
+                {
+                    distortionEdgeMask = GlassComputeValidatedDistortionEdgeMask(input.barycentric, input.edgeKeep);
+                }
                 float baseRefractionScale = ComputeBaseRefractionScale(normalizedThickness, nearFade, screenUV);
                 float distortionGain = ComputeFaceEdgeDistortionGain(distortionEdgeMask, frontDepth);
                 float refractionScale = ComposeRefractionScale(baseRefractionScale, distortionGain);

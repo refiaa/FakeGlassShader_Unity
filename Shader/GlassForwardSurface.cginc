@@ -31,8 +31,23 @@ inline void SampleSurfaceParameters(float2 baseUV, out float perceptualRoughness
 {
     float2 roughnessUV = TRANSFORM_TEX(baseUV, _RoughnessMap);
     float2 metallicUV = TRANSFORM_TEX(baseUV, _MetallicMap);
-    float roughnessMap = tex2D(_RoughnessMap, roughnessUV).r;
-    float metallicMap = tex2D(_MetallicMap, metallicUV).r;
+
+    // Strength 0 returns the base value whatever the map holds, so the fetch is skipped.
+    // Derivatives are taken outside the branch; tex2Dgrad with them equals tex2D.
+    float4 roughnessDeriv = float4(ddx(roughnessUV), ddy(roughnessUV));
+    float4 metallicDeriv = float4(ddx(metallicUV), ddy(metallicUV));
+    float roughnessMap = 0.0;
+    float metallicMap = 0.0;
+    [branch]
+    if (_RoughnessMapStrength > 0.0)
+    {
+        roughnessMap = tex2Dgrad(_RoughnessMap, roughnessUV, roughnessDeriv.xy, roughnessDeriv.zw).r;
+    }
+    [branch]
+    if (_MetallicMapStrength > 0.0)
+    {
+        metallicMap = tex2Dgrad(_MetallicMap, metallicUV, metallicDeriv.xy, metallicDeriv.zw).r;
+    }
     float basePerceptualRoughness = saturate(1.0 - _Smoothness);
 
     perceptualRoughness = GlassApplyMapStrength(basePerceptualRoughness, roughnessMap, _RoughnessMapStrength);
