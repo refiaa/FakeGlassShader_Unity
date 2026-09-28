@@ -342,6 +342,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _AAStrength: 1
+    - _AbbeNumber: 58
     - _AlphaBoostFA: 10
     - _AlphaMaskMode: 0
     - _AlphaMaskScale: 1
@@ -439,7 +440,7 @@ Material:
     - _EmissionMap_UVMode: 0
     - _EmissionParallaxDepth: 0
     - _EmissionUseGrad: 0
-    - _EnvReflectionStrength: 2.5
+    - _EnvReflectionStrength: 1.18
     - _EnvRimBlur: 0.35
     - _EnvRimBorder: 3
     - _FallbackAbsorptionScale: 1
@@ -492,7 +493,7 @@ Material:
     - _GlassRainEnabled: 1
     - _GlassRainMaskChannel: 0
     - _GlassRainMode: 1
-    - _GlassRainNormalBlend: 1
+    - _GlassRainNormalBlend: 0.5
     - _GlassRainRippleDensity: 1
     - _GlassRainRippleScale: 20
     - _GlassRainRippleSpeed: 2
@@ -549,7 +550,7 @@ Material:
     - _IDMaskPrior6: 0
     - _IDMaskPrior7: 0
     - _IDMaskPrior8: 0
-    - _IOR: 1.5
+    - _IOR: 1
     - _Invisible: 0
     - _LightMaxLimit: 1
     - _LightMinLimit: 0.05
@@ -623,7 +624,7 @@ Material:
     - _MeshEdgeWidth: 1
     - _MeshSuppressDiagonal: 1
     - _Metallic: 0
-    - _MetallicMapStrength: 0.072
+    - _MetallicMapStrength: 0.051
     - _MinViewDot: 0.03
     - _Mode: 0
     - _MonochromeLighting: 0
@@ -664,8 +665,9 @@ Material:
     - _RefractionBlurMaxPixels: 24
     - _RefractionBlurRoughnessInfluence: 0.5
     - _RefractionBlurScale: 0.03
-    - _RefractionBlurStrength: 1
+    - _RefractionBlurStrength: 0.576
     - _RefractionBlurThicknessInfluence: 0
+    - _RefractionModel: 0
     - _RefractionRoughBlur: 0
     - _RefractionStrength: 0.002
     - _RimApplyTransparency: 1
@@ -688,7 +690,7 @@ Material:
     - _RimShadeNormalStrength: 1
     - _RimShadowMask: 0.5
     - _RimVRParallaxStrength: 1
-    - _RoughnessMapStrength: 0
+    - _RoughnessMapStrength: 1
     - _SSREdgeFade: 0.03
     - _SSRMaxRoughness: 0.35
     - _SSRMaxSteps: 24
@@ -696,6 +698,7 @@ Material:
     - _SSRStepSize: 0.03
     - _SSRStrength: 0.7
     - _SSRThickness: 0.02
+    - _Scattering: 0
     - _ScreenEdgeFadePixels: 32
     - _Shadow2ndBlur: 0.1
     - _Shadow2ndBorder: 0.15
@@ -801,7 +804,7 @@ Material:
     - _UsePOM: 0
     - _UseParallax: 0
     - _UseReflection: 0
-    - _UseRefractionBlur: 0
+    - _UseRefractionBlur: 1
     - _UseRim: 0
     - _UseRimShade: 0
     - _UseSSR: 1
@@ -893,7 +896,7 @@ Material:
     - _OutlineTex_ScrollRotate: {r: 0, g: 0, b: 0, a: 0}
     - _ReflectionColor: {r: 1, g: 1, b: 1, a: 1}
     - _ReflectionCubeColor: {r: 0, g: 0, b: 0, a: 1}
-    - _ReflectionTint: {r: 1, g: 1, b: 1, a: 1}
+    - _ReflectionTint: {r: 0.8537736, g: 1, b: 0.9747263, a: 1}
     - _RimColor: {r: 0.65999997, g: 0.5, b: 0.47999996, a: 1}
     - _RimIndirColor: {r: 1, g: 1, b: 1, a: 1}
     - _RimShadeColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
